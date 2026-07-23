@@ -195,6 +195,7 @@ class StokUygulamasi:
         self.sepet = []
         self._sepet_pencere = None
         self._sepet_refresh = None
+        self._cop_refresh = None
 
         self.app = tk.Tk()
         self.app.configure(bg="#F0F0F0")
@@ -485,7 +486,7 @@ class StokUygulamasi:
         self._btn_veri.grid(row=0, column=4, padx=5)
         tk.Button(btn_frame, text=" Sepet", image=_cart_img, compound="left", font=_emoji_font, command=self._open_cart).grid(row=0, column=5, padx=5)
         tk.Button(btn_frame, text=" Teklifler", image=_offer_img, compound="left", font=_emoji_font, command=self._open_teklifler).grid(row=0, column=6, padx=5)
-        tk.Button(btn_frame, text=" Güncellemeler", font=_emoji_font, command=self._open_changelog).grid(row=0, column=7, padx=5)
+
 
         form = tk.LabelFrame(self.app, text="Yeni Ürün", padx=12, pady=10)
         form.pack(fill="x", padx=20, pady=(0, 10))
@@ -1568,7 +1569,18 @@ del "%~f0" 2>nul
                     if hasattr(self, '_cop_pencere'):
                         self._cop_pencere = None
             self.app.bind("<Unmap>", _on_unmap)
+            def _on_focus_out(event):
+                try:
+                    if self.app.state() == "iconic":
+                        return
+                except Exception:
+                    return
+                self._destroy_tracked()
+            self.app.bind("<FocusOut>", _on_focus_out)
         self._tracked_windows.add(win)
+        def _on_child_focus_out(event):
+            self.app.after(50, self._destroy_tracked)
+        win.bind("<FocusOut>", _on_child_focus_out)
         def _track():
             if not win.winfo_exists():
                 self._tracked_windows.discard(win)
@@ -1590,6 +1602,36 @@ del "%~f0" 2>nul
         self._last_app_x = self.app.winfo_x()
         self._last_app_y = self.app.winfo_y()
         _track()
+
+    def _destroy_tracked(self):
+        if not hasattr(self, '_tracked_windows'):
+            return
+        try:
+            if self.app.state() == "iconic":
+                return
+        except Exception:
+            return
+        root = self.app.winfo_toplevel()
+        try:
+            focused = root.focus_get()
+        except Exception:
+            focused = None
+        if focused is not None:
+            return
+        for w in list(self._tracked_windows):
+            try:
+                if w.winfo_exists():
+                    w.destroy()
+            except Exception:
+                pass
+        self._tracked_windows.clear()
+        if hasattr(self, '_sepet_pencere'):
+            self._sepet_pencere = None
+            self._sepet_refresh = None
+        if hasattr(self, '_teklif_pencere'):
+            self._teklif_pencere = None
+        if hasattr(self, '_cop_pencere'):
+            self._cop_pencere = None
 
     def _create_offer(self):
         if not self.sepet:
@@ -2279,54 +2321,6 @@ del "%~f0" 2>nul
         tk.Button(btn_frame, text=" Düzenle", font=("Arial", 10), command=duzenle).pack(side="left", padx=5)
         tk.Button(btn_frame, text=" Sil", font=("Arial", 10), command=sil).pack(side="left", padx=5)
         tk.Button(btn_frame, text=" Kapat", font=("Arial", 10), command=win.destroy).pack(side="left", padx=5)
-
-    def _open_changelog(self):
-        changelog_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Güncellemeler.txt")
-        if not os.path.exists(changelog_path):
-            messagebox.showinfo("Güncellemeler", "Güncelleme kaydı bulunamadı.")
-            return
-
-        try:
-            with open(changelog_path, "r", encoding="utf-8") as f:
-                content = f.read()
-        except Exception as e:
-            messagebox.showerror("Hata", f"Dosya okunamadı:\n{e}")
-            return
-
-        win = tk.Toplevel(self.app)
-        win.title("Güncelleme Geçmişi")
-        win.geometry("600x400")
-        win.resizable(True, True)
-        win.transient(self.app)
-        win.grab_set()
-        self._tracked_windows.add(win)
-        win.bind("<Destroy>", lambda e: self._tracked_windows.discard(win), add="+")
-
-        # Center on parent
-        win.update_idletasks()
-        x = self.app.winfo_x() + (self.app.winfo_width() - 600) // 2
-        y = self.app.winfo_y() + (self.app.winfo_height() - 400) // 2
-        win.geometry(f"+{x}+{y}")
-
-        # Top bar
-        top_bar = tk.Frame(win, bg="#E8F0FE", cursor="hand2")
-        top_bar.pack(side="top", fill="x")
-        tk.Label(top_bar, text="  Güncelleme Geçmişi", font=("Arial", 10, "bold"), fg="#1F4E79", bg="#E8F0FE").pack(side="left", padx=5, pady=3)
-        tk.Button(top_bar, text=" Kapat", font=("Arial", 9), bd=0, cursor="hand2", bg="#E8F0FE", activebackground="#D0E4FA",
-                  command=win.destroy).pack(side="right", padx=5, pady=3)
-
-        # Text area with scrollbar
-        text_frame = tk.Frame(win)
-        text_frame.pack(fill="both", expand=True, padx=10, pady=10)
-
-        scrollbar = tk.Scrollbar(text_frame)
-        scrollbar.pack(side="right", fill="y")
-
-        text_widget = tk.Text(text_frame, font=("Consolas", 10), wrap="word", yscrollcommand=scrollbar.set)
-        text_widget.pack(fill="both", expand=True)
-        text_widget.insert("1.0", content)
-        text_widget.config(state="disabled")
-        scrollbar.config(command=text_widget.yview)
 
     def _toggle_login(self):
         if self._logged_in:
