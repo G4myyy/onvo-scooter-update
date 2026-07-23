@@ -14,8 +14,6 @@ from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from PIL import Image, ImageTk
 import requests
-import bcrypt
-
 from config import config
 
 if getattr(sys, 'frozen', False):
@@ -64,8 +62,8 @@ if getattr(sys, 'frozen', False):
             shutil.copytree(bundle_excel, EXCEL_DIR)
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
-FIREBASE_URL = "https://kaen-onvo-scooter-default-rtdb.firebaseio.com"
-APP_VERSION = "2.66"
+FIREBASE_URL = config.firebase_url
+APP_VERSION = "2.67"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
@@ -221,21 +219,6 @@ class StokUygulamasi:
         self.app.after(3000, lambda: self.app.attributes("-topmost", False))
         self.app.minsize(1000, 650)
 
-        def _on_minimize(event):
-            if not self.app.winfo_viewable():
-                for attr in ['_sepet_pencere', '_cop_pencere', '_teklif_pencere']:
-                    w = getattr(self, attr, None)
-                    if w and w.winfo_exists():
-                        w.withdraw()
-        def _on_restore(event):
-            if self.app.winfo_viewable():
-                for attr in ['_sepet_pencere', '_cop_pencere', '_teklif_pencere']:
-                    w = getattr(self, attr, None)
-                    if w and w.winfo_exists():
-                        w.deiconify()
-        self.app.bind("<Unmap>", _on_minimize, add="+")
-        self.app.bind("<Map>", _on_restore, add="+")
-
         style = ttk.Style(self.app)
         style.theme_use("clam")
         style.configure("Centered.TCombobox", justify="center")
@@ -270,7 +253,6 @@ class StokUygulamasi:
         self.app.after(2000, self._check_update)
         self.app.after(604800000, self._periodic_update_check)
         self.app.after(60000, self._periodic_cleanup)
-        self.app.after(500, lambda: None)
 
     def _open_info_pages(self, event=None):
         if hasattr(self, '_info_overlay') and self._info_overlay:
@@ -485,11 +467,7 @@ class StokUygulamasi:
         _cart_add_img = _icon_cart_add()
         _delete_img = _icon_delete()
         _close_img = _icon_close()
-        _close_red_img = _make_icon(18, lambda d, s: (
-            d.line([4, 4, 14, 14], fill="#E74C3C", width=3),
-            d.line([14, 4, 4, 14], fill="#E74C3C", width=3),
-        ))
-        self._close_red_img = _close_red_img
+        self._close_red_img = _delete_img
         _restore_img = _icon_restore()
         _clean_img = _icon_clean()
         _offer_img = _icon_offer()
@@ -657,16 +635,15 @@ class StokUygulamasi:
         self._log(f"Geri dönüldü: {msg}", snapshot=False)
 
     def _log(self, msg, snapshot=True):
-        import time as _t
-        zaman = _t.strftime("%H:%M:%S")
+        zaman = time.strftime("%H:%M:%S")
         satir = f"[{zaman}] {msg}\n"
         if not hasattr(self, '_log_buffer'):
             self._log_buffer = ""
         self._log_buffer += satir
         lines = self._log_buffer.count("\n")
-        if lines > 100:
-            self._log_buffer = "".join(self._log_buffer.split("\n")[-80:])
-            self._log_entries = self._log_entries[-80:]
+        if lines > 25:
+            self._log_buffer = "".join(self._log_buffer.split("\n")[-20:])
+            self._log_entries = self._log_entries[-20:]
         if snapshot:
             self._log_entries.append({
                 "msg": satir.strip(),
@@ -837,19 +814,13 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         self.tablo.item(iid, tags=("flash",))
         self.app.after(200, lambda: self.tablo.item(iid, tags=()))
 
-    def _on_click_outside(self, event=None):
-        if event is None:
-            return
-        w = event.widget
-        entry_widgets = {self.tablo, self.urun_entry, self.stok_entry, self.cihaz_entry, self.fiyat_entry, self.arama}
-        if w not in entry_widgets:
-            self.tablo.selection_remove(*self.tablo.selection())
-
     def _save(self):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu}, f, ensure_ascii=False, indent=2)
         self._last_push_time = time.time()
-        threading.Thread(target=self._firebase_push, daemon=True).start()
+        if hasattr(self, '_push_after_id') and self._push_after_id:
+            self.app.after_cancel(self._push_after_id)
+        self._push_after_id = self.app.after(2000, self._firebase_push)
 
     def _firebase_push(self):
         if self._syncing:
@@ -1167,7 +1138,6 @@ del "%~f0" 2>nul
                 if not all(k in flat_text for k in arama_kelimeler):
                     continue
             if model and model != "Tümü":
-                import re
                 match_w = re.search(r'(\d+)\s*[Ww]$', model)
                 if match_w:
                     watt = match_w.group(1)
@@ -1208,10 +1178,11 @@ del "%~f0" 2>nul
         self.tablo_alt.config(text=f"Toplam Kayıt: {len(self.veriler)}")
 
     def _refresh_models(self):
-        import re
         def model_sort_key(m):
             nums = ''.join(c for c in m if c.isdigit())
             return int(nums) if nums else 0
+
+        model_wattages = {}
 
         model_wattages = {}
         for r in self.veriler:
@@ -1535,13 +1506,11 @@ del "%~f0" 2>nul
             if not secili:
                 messagebox.showwarning("Uyarı", "Çıkarmak için bir ürün seçin.", parent=pencere)
                 return
+            children = tablo.get_children()
             try:
-                idx = int(secili[0])
+                idx = list(children).index(secili[0])
             except ValueError:
-                for i, item_id in enumerate(tablo.get_children()):
-                    if item_id == secili[0]:
-                        idx = i
-                        break
+                return
             if 0 <= idx < len(self.sepet):
                 cikan = self.sepet.pop(idx)
                 self._log(f"Sepetten çıkarıldı: {cikan['Stok Adi']}")
@@ -1621,12 +1590,6 @@ del "%~f0" 2>nul
         self._last_app_x = self.app.winfo_x()
         self._last_app_y = self.app.winfo_y()
         _track()
-
-    def _hide_tracked_if_needed(self):
-        pass
-
-    def _show_tracked_if_needed(self):
-        pass
 
     def _create_offer(self):
         if not self.sepet:
@@ -2382,11 +2345,6 @@ del "%~f0" 2>nul
             elif pw is not None:
                 messagebox.showwarning("Hata", "Geçersiz şifre!")
 
-    def _require_admin(self):
-        from tkinter import simpledialog
-        pw = simpledialog.askstring("Şifre", "Yönetici şifresi:", parent=self.app, show="*")
-        return pw == self._admin_pw
-
     def _import_excel(self):
         path = filedialog.askopenfilename(
             title="Excel dosyası seç",
@@ -2651,7 +2609,7 @@ del "%~f0" 2>nul
         tk.Button(btn_frame, text=" Geri Al", image=self._btn_icons[9], compound="left", font=("Segoe UI Emoji", 10), command=restore).pack(side="left", padx=5)
         tk.Button(btn_frame, text=" Seçili Sil", image=self._btn_icons[7], compound="left", font=("Segoe UI Emoji", 10), command=delete_selected).pack(side="left", padx=5)
         tk.Button(btn_frame, text=" Tümünü Sil", image=self._btn_icons[10], compound="left", font=("Segoe UI Emoji", 10), command=empty_trash).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Kapat", image=self._close_red_img, compound="left", font=("Segoe UI Emoji", 10), command=win.destroy).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Kapat", image=self._close_red_img, compound="left", font=("Segoe UI Emoji", 10), command=lambda: (setattr(self, '_cop_pencere', None), win.destroy())).pack(side="left", padx=5)
 
 
 if __name__ == "__main__":
