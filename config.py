@@ -39,4 +39,20 @@ class Config:
     def github_repo(self):
         return self.get("github_repo", "G4myyy/onvo-scooter-update")
 
+    @property
+    def admin_password_hash(self):
+        return self.get("admin_password_hash", "")
+
+    @property
+    def firebase_api_key(self):
+        return self.get("firebase_api_key", "")
+
+    @property
+    def firebase_email(self):
+        return self.get("firebase_email", "")
+
+    @property
+    def firebase_password(self):
+        return self.get("firebase_password", "")
+
 config = Config()

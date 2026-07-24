@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import os
 import re
@@ -10,6 +11,7 @@ import threading
 import unicodedata
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
+import ttkbootstrap as ttkb
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from PIL import Image, ImageTk
@@ -60,10 +62,16 @@ if getattr(sys, 'frozen', False):
         bundle_excel = os.path.join(BUNDLE_DIR, "excel")
         if os.path.isdir(bundle_excel):
             shutil.copytree(bundle_excel, EXCEL_DIR)
+    _config_local = os.path.join(APP_DIR, "config.json")
+    if not os.path.exists(_config_local):
+        import shutil
+        _config_bundle = os.path.join(BUNDLE_DIR, "config.json")
+        if os.path.exists(_config_bundle):
+            shutil.copy2(_config_bundle, _config_local)
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
 FIREBASE_URL = config.firebase_url
-APP_VERSION = "2.67"
+APP_VERSION = "2.72"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
@@ -197,7 +205,7 @@ class StokUygulamasi:
         self._sepet_refresh = None
         self._cop_refresh = None
 
-        self.app = tk.Tk()
+        self.app = ttkb.Window(themename="cosmo")
         self.app.configure(bg="#F0F0F0")
         self.app.title("ONVO SCOOTER")
         w, h = 1150, 680
@@ -216,13 +224,81 @@ class StokUygulamasi:
                 self.app.iconbitmap(_icon)
             except Exception:
                 pass
+            try:
+                _pil_img = Image.open(_icon)
+                _pil_img = _pil_img.resize((32, 32), Image.LANCZOS)
+                _tk_img = ImageTk.PhotoImage(_pil_img)
+                self.app.iconphoto(True, _tk_img)
+                self._taskbar_icon = _tk_img
+            except Exception:
+                pass
         self.app.attributes("-topmost", True)
-        self.app.after(3000, lambda: self.app.attributes("-topmost", False))
+        self.app.after(500, lambda: self.app.attributes("-topmost", False))
+        self.app.bind("<FocusOut>", lambda e: self.app.attributes("-topmost", False))
         self.app.minsize(1000, 650)
 
         style = ttk.Style(self.app)
-        style.theme_use("clam")
         style.configure("Centered.TCombobox", justify="center")
+
+        # Modern button styles
+        style.configure("Modern.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
+        style.configure("ModernSuccess.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
+        style.configure("ModernDanger.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
+        style.configure("ModernWarning.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
+        style.configure("ModernInfo.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
+        style.configure("ModernSecondary.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
+        style.configure("Toolbar.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("ToolbarSuccess.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("ToolbarDanger.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("ToolbarWarning.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("ToolbarInfo.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+
+        # Hover effects via map
+        style.map("Modern.TButton",
+            background=[("active", "#5B9BD5")],
+            foreground=[("active", "white")])
+        style.map("ModernSuccess.TButton",
+            background=[("active", "#219A52")],
+            foreground=[("active", "white")])
+        style.map("ModernDanger.TButton",
+            background=[("active", "#C0392B")],
+            foreground=[("active", "white")])
+        style.map("ModernWarning.TButton",
+            background=[("active", "#D68910")],
+            foreground=[("active", "white")])
+        style.map("ModernInfo.TButton",
+            background=[("active", "#1F6F8F")],
+            foreground=[("active", "white")])
+        style.map("Toolbar.TButton",
+            background=[("active", "#E8F0FE")],
+            foreground=[("active", "#1F4E79")])
+
+        # Treeview styles
+        style.configure("Treeview", rowheight=26, font=("Segoe UI", 9),
+                        borderwidth=0)
+        style.map("Treeview",
+            background=[("selected", "#1F4E79")],
+            foreground=[("selected", "white")],
+            fieldbackground=[("selected", "#1F4E79")])
+        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"), padding=(6, 3),
+                        borderwidth=1, relief="solid")
+        style.map("Treeview.Heading",
+            background=[("active", "#2D6CA2")],
+            foreground=[("active", "white")])
+        style.layout("Treeview", [
+            ("Treeview.border", {"sticky": "nswe", "children": [
+                ("Treeview.treearea", {"sticky": "nswe"})
+            ]})
+        ])
+
+        # Dialog button styles
+        style.configure("Dialog.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("DialogSuccess.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("DialogDanger.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("DialogWarning.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("DialogInfo.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("DialogSecondary.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
+        style.configure("DialogLink.TButton", padding=(10, 4), font=("Segoe UI", 9), relief="flat")
 
         self.arama_var = tk.StringVar()
         self.model_var = tk.StringVar(value="Tümü")
@@ -231,7 +307,6 @@ class StokUygulamasi:
         self._syncing = False
         self._log_entries = []
         self._last_push_time = 0
-        self._admin_pw = "12345"
         self._logged_in = False
         self._info_overlay = None
         self._info_pages = [
@@ -477,15 +552,18 @@ class StokUygulamasi:
         btn_frame = tk.Frame(self.app)
         btn_frame.pack(pady=8)
 
-        tk.Button(btn_frame, text=" Ana Menü", image=_home_img, compound="left", font=_emoji_font, command=self._go_home).grid(row=0, column=0, padx=5)
-        tk.Button(btn_frame, text=" Yenile", image=_refresh_img, compound="left", font=_emoji_font, command=self._refresh_all).grid(row=0, column=1, padx=5)
-        tk.Button(btn_frame, text=" Çöp Kutusu", image=_trash_img, compound="left", font=_emoji_font, command=self._open_trash).grid(row=0, column=2, padx=5)
-        self._btn_excel = tk.Button(btn_frame, text=" Excel Seç", image=_excel_img, compound="left", font=_emoji_font, command=self._import_excel)
-        self._btn_excel.grid(row=0, column=3, padx=5)
-        self._btn_veri = tk.Button(btn_frame, text=" Veri Al", font=_emoji_font, command=self._reload_excel)
-        self._btn_veri.grid(row=0, column=4, padx=5)
-        tk.Button(btn_frame, text=" Sepet", image=_cart_img, compound="left", font=_emoji_font, command=self._open_cart).grid(row=0, column=5, padx=5)
-        tk.Button(btn_frame, text=" Teklifler", image=_offer_img, compound="left", font=_emoji_font, command=self._open_teklifler).grid(row=0, column=6, padx=5)
+        ttkb.Button(btn_frame, text=" Ana Menü", image=_home_img, compound="left", style="Toolbar.TButton", bootstyle="primary", command=self._go_home).grid(row=0, column=0, padx=4)
+        ttkb.Button(btn_frame, text=" Yenile", image=_refresh_img, compound="left", style="ToolbarSuccess.TButton", bootstyle="success", command=self._refresh_all).grid(row=0, column=1, padx=4)
+        ttkb.Button(btn_frame, text=" Çöp Kutusu", image=_trash_img, compound="left", style="ToolbarDanger.TButton", bootstyle="danger", command=self._open_trash).grid(row=0, column=2, padx=4)
+        self._btn_excel = ttkb.Button(btn_frame, text=" Excel Seç", image=_excel_img, compound="left", style="ToolbarInfo.TButton", bootstyle="info")
+        self._btn_excel.grid(row=0, column=3, padx=4)
+        self._btn_veri = ttkb.Button(btn_frame, text=" Veri Al", style="ToolbarInfo.TButton", bootstyle="info")
+        self._btn_veri.grid(row=0, column=4, padx=4)
+        ttkb.Button(btn_frame, text=" Sepet", image=_cart_img, compound="left", style="ToolbarWarning.TButton", bootstyle="warning", command=self._open_cart).grid(row=0, column=5, padx=4)
+        ttkb.Button(btn_frame, text=" Teklifler", image=_offer_img, compound="left", style="ToolbarSuccess.TButton", bootstyle="success", command=self._open_teklifler).grid(row=0, column=6, padx=4)
+        self._btn_bulut = ttkb.Button(btn_frame, text=" Bulut Teklifleri", image=_offer_img, compound="left", style="ToolbarDanger.TButton", bootstyle="danger")
+        self._btn_bulut.grid(row=0, column=7, padx=4)
+        self._btn_bulut.grid_remove()
 
 
         form = tk.LabelFrame(self.app, text="Yeni Ürün", padx=12, pady=10)
@@ -523,26 +601,29 @@ class StokUygulamasi:
         tk.Button(form, text="×", command=lambda: self.stok_entry.delete(0, tk.END), **_small_btn).grid(row=1, column=5, sticky="w")
         tk.Button(form, text="×", command=lambda: self.cihaz_entry.delete(0, tk.END), **_small_btn).grid(row=1, column=7, sticky="w")
         tk.Button(form, text="×", command=lambda: self.fiyat_entry.delete(0, tk.END), **_small_btn).grid(row=1, column=9, sticky="w")
-        tk.Button(form, text="×", command=_clear_all, **_small_btn).grid(row=0, column=0, sticky="w", padx=(0, 2))
+        tk.Button(form, text="×", command=_clear_all, **_small_btn).grid(row=0, column=0, sticky="w")
 
         islem = tk.Frame(self.app)
         islem.pack(pady=(0, 10))
-        tk.Button(islem, text=" Ekle / Güncelle", image=_add_img, compound="left", font=_emoji_font, command=self._add_or_update).grid(row=0, column=0, padx=5)
-        tk.Button(islem, text=" Sepete Ekle", image=_cart_add_img, compound="left", font=_emoji_font, command=self._add_to_cart).grid(row=0, column=1, padx=5)
-        tk.Button(islem, text=" Sil", image=_delete_img, compound="left", font=_emoji_font, command=self._delete).grid(row=0, column=2, padx=5)
-        tk.Button(islem, text=" Kapat", image=_close_img, compound="left", font=_emoji_font, command=self.app.destroy).grid(row=0, column=3, padx=5)
+        ttkb.Button(islem, text=" Ekle / Güncelle", image=_add_img, compound="left", style="Modern.TButton", bootstyle="primary", command=self._add_or_update).grid(row=0, column=0, padx=5)
+        ttkb.Button(islem, text=" Sepete Ekle", image=_cart_add_img, compound="left", style="ModernWarning.TButton", bootstyle="warning", command=self._add_to_cart).grid(row=0, column=1, padx=5)
+        ttkb.Button(islem, text=" Sil", image=_delete_img, compound="left", style="ModernDanger.TButton", bootstyle="danger", command=self._delete).grid(row=0, column=2, padx=5)
+        ttkb.Button(islem, text=" Kapat", image=_close_img, compound="left", style="ModernSecondary.TButton", bootstyle="secondary", command=self.app.destroy).grid(row=0, column=3, padx=5)
 
-        tablo_frame = tk.Frame(self.app)
+        tablo_frame = tk.Frame(self.app, bg="#D0D0D0", bd=1, relief="solid")
         tablo_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
 
         display_cols = list(COLUMN_HEADERS.keys())
-        self.tablo = ttk.Treeview(tablo_frame, columns=display_cols, show="headings", height=13, selectmode="extended")
+        self.tablo = ttk.Treeview(tablo_frame, columns=display_cols, show="headings", height=13, selectmode="extended", style="Treeview")
+        col_widths = {"Kullanilan Urun": 220, "Stok Adi": 200, "Kullanilan Cihaz": 160, "Satis Fiyati": 150}
         for col in display_cols:
             self.tablo.heading(col, text=COLUMN_HEADERS[col])
-            self.tablo.column(col, width=170 if col == "Kullanilan Urun" else 140, anchor="center")
+            self.tablo.column(col, width=col_widths.get(col, 180), anchor="center", minwidth=80)
 
         self.tablo.grid(row=0, column=0, sticky="nsew")
         self.tablo.tag_configure("flash", background="#3498DB", foreground="white")
+        self.tablo.tag_configure("oddrow", background="#F5F7FA")
+        self.tablo.tag_configure("evenrow", background="white")
         scrollbar = ttk.Scrollbar(tablo_frame, orient="vertical", command=self.tablo.yview)
         self.tablo.configure(yscrollcommand=scrollbar.set)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -586,7 +667,7 @@ class StokUygulamasi:
         alt = tk.Frame(self.app)
         alt.pack(fill="x", padx=20, pady=(0, 5))
         tk.Label(alt, text=f"v{APP_VERSION}", font=("Arial", 9), fg="#999").pack(side="right")
-        ttk.Button(alt, text="📋 İşlem Günlüğü", command=self._open_log).pack(side="right")
+        ttkb.Button(alt, text="📋 İşlem Günlüğü", style="Dialog.TButton", bootstyle="primary", command=self._open_log).pack(side="right")
         self.durum = tk.Label(alt, text="Yükleniyor...", font=("Arial", 10))
         self.durum.pack(side="left")
 
@@ -659,6 +740,10 @@ class StokUygulamasi:
             self.log_text.config(state="disabled")
 
     def _notify(self, title, msg):
+        def _safe(t):
+            return str(t).replace("`", "").replace("$", "").replace('"', "").replace(";", "").replace("|", "").replace("&", "")
+        title = _safe(title)
+        msg = _safe(msg)
         ps = f'''
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime] | Out-Null
@@ -797,17 +882,16 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         if not temiz_fiyat or temiz_fiyat == "0":
             return
         birim_fiyat = float(temiz_fiyat.replace(",", "."))
-        toplam = round(birim_fiyat * 1, 2)
         self.sepet.append({
             "Kullanilan Urun": urun,
             "Stok Adi": stok,
             "Kullanilan Cihaz": cihaz,
             "Birim Fiyat": birim_fiyat,
             "Miktar": 1,
-            "Toplam": toplam,
+            "Toplam": birim_fiyat,
         })
         self._log(f"Sepete eklendi: {stok} x1")
-        self._notify("Sepete Eklendi", f"{stok} x1 - {toplam:,.2f} TL")
+        self._notify("Sepete Eklendi", f"{stok} x1 - {birim_fiyat:,.2f} TL")
         if self._sepet_refresh:
             self._sepet_refresh()
 
@@ -817,43 +901,51 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 
     def _save(self):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
-            json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu}, f, ensure_ascii=False, indent=2)
+            json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu, "sepet": self.sepet}, f, ensure_ascii=False, indent=2)
         self._last_push_time = time.time()
+        self._dirty = True
         if hasattr(self, '_push_after_id') and self._push_after_id:
             self.app.after_cancel(self._push_after_id)
         self._push_after_id = self.app.after(2000, self._firebase_push)
 
+    def _strip_large_fields(self, teklifler):
+        cleaned = []
+        for t in teklifler:
+            tc = {k: v for k, v in t.items() if k not in ("xlsx_base64", "pdf_base64")}
+            cleaned.append(tc)
+        return cleaned
+
     def _firebase_push(self):
-        if self._syncing:
-            return
-        self._syncing = True
-        try:
-            local_sepet = copy.deepcopy(self.sepet)
-            requests.put(f"{FIREBASE_URL}/veriler.json", json=self.veriler, timeout=10)
-            requests.put(f"{FIREBASE_URL}/cop_kutusu.json", json=self.cop_kutusu, timeout=10)
-            requests.put(f"{FIREBASE_URL}/sepet.json", json=local_sepet, timeout=10)
-            teklifler = []
-            if os.path.exists(TEKLIF_DATA):
-                try:
-                    with open(TEKLIF_DATA, "r", encoding="utf-8") as f:
-                        teklifler = json.load(f)
-                except Exception:
-                    pass
-            requests.put(f"{FIREBASE_URL}/teklifler.json", json=teklifler, timeout=10)
-            self.app.after(0, lambda: (self.durum.config(text=f"Bulut senkronize | Toplam: {len(self.veriler)}"), self._log("Buluta gönderildi")))
-        except Exception:
-            self.app.after(0, lambda: self._log("Bulut hatası!"))
-        finally:
-            self._syncing = False
+        def _push_thread():
+            if self._syncing:
+                return
+            self._syncing = True
+            try:
+                token = self._get_firebase_token()
+                auth = f"?auth={token}" if token else ""
+                local_veriler = copy.deepcopy(self.veriler)
+                local_cop = copy.deepcopy(self.cop_kutusu)
+                local_sepet = copy.deepcopy(self.sepet)
+                requests.put(f"{FIREBASE_URL}/veriler.json{auth}", json=local_veriler, timeout=10)
+                requests.put(f"{FIREBASE_URL}/cop_kutusu.json{auth}", json=local_cop, timeout=10)
+                requests.put(f"{FIREBASE_URL}/sepet.json{auth}", json=local_sepet, timeout=10)
+                self._dirty = False
+                self.app.after(0, lambda: (self.durum.config(text=f"Bulut senkronize | Toplam: {len(local_veriler)}"), self._log("Buluta gonderildi")))
+            except Exception:
+                self.app.after(0, lambda: self._log("Bulut hatasi!"))
+            finally:
+                self._syncing = False
+        threading.Thread(target=_push_thread, daemon=True).start()
 
     def _firebase_pull_local(self):
         if self._syncing or time.time() - self._last_push_time < 10:
             return False
         try:
-            r1 = requests.get(f"{FIREBASE_URL}/veriler.json", timeout=10)
-            r2 = requests.get(f"{FIREBASE_URL}/cop_kutusu.json", timeout=10)
-            r3 = requests.get(f"{FIREBASE_URL}/sepet.json", timeout=10)
-            r4 = requests.get(f"{FIREBASE_URL}/teklifler.json", timeout=10)
+            token = self._get_firebase_token()
+            auth = f"?auth={token}" if token else ""
+            r1 = requests.get(f"{FIREBASE_URL}/veriler.json{auth}", timeout=10)
+            r2 = requests.get(f"{FIREBASE_URL}/cop_kutusu.json{auth}", timeout=10)
+            r3 = requests.get(f"{FIREBASE_URL}/sepet.json{auth}", timeout=10)
             if r1.status_code == 200 and r2.status_code == 200:
                 remote_veriler = r1.json()
                 remote_cop = r2.json()
@@ -862,11 +954,15 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 if not isinstance(remote_cop, list):
                     remote_cop = []
                 remote_keys = {self._build_key(r) for r in remote_veriler}
+                local_keys = {self._build_key(r) for r in self.veriler}
                 local_lookup = {self._build_key(r): r for r in self.veriler}
-                self.veriler = [r for r in self.veriler if self._build_key(r) in remote_keys]
+                if not getattr(self, '_dirty', True):
+                    self.veriler = [r for r in self.veriler if self._build_key(r) in remote_keys]
+                    local_keys = {self._build_key(r) for r in self.veriler}
+                    local_lookup = {self._build_key(r): r for r in self.veriler}
                 for r in remote_veriler:
                     k = self._build_key(r)
-                    if k in local_lookup:
+                    if k in local_keys:
                         remote_price = parse_price(r.get("Satis Fiyati", ""))
                         if remote_price and remote_price != "0":
                             local_lookup[k]["Satis Fiyati"] = remote_price
@@ -874,30 +970,21 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                         self.veriler.append(r)
                         local_lookup[k] = r
                 remote_cop_keys = {self._build_key(r) for r in remote_cop}
-                self.cop_kutusu = [r for r in self.cop_kutusu if self._build_key(r) in remote_cop_keys]
                 local_cop_keys = {self._build_key(r) for r in self.cop_kutusu}
+                if not getattr(self, '_dirty', True):
+                    self.cop_kutusu = [r for r in self.cop_kutusu if self._build_key(r) in remote_cop_keys]
+                    local_cop_keys = {self._build_key(r) for r in self.cop_kutusu}
                 for r in remote_cop:
                     k = self._build_key(r)
                     if k not in local_cop_keys:
                         self.cop_kutusu.append(r)
                         local_cop_keys.add(k)
                 remote_sepet = r3.json() if r3.status_code == 200 else []
-                if r4.status_code == 200:
-                    remote_teklifler = r4.json()
-                    if isinstance(remote_teklifler, list) and remote_teklifler:
-                        local_teklifler = []
-                        if os.path.exists(TEKLIF_DATA):
-                            try:
-                                with open(TEKLIF_DATA, "r", encoding="utf-8") as f:
-                                    local_teklifler = json.load(f)
-                            except Exception:
-                                pass
-                        local_no_set = {t.get("no") for t in local_teklifler}
-                        for t in remote_teklifler:
-                            if t.get("no") not in local_no_set:
-                                local_teklifler.append(t)
-                        with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
-                            json.dump(local_teklifler, f, ensure_ascii=False, indent=2)
+                if isinstance(remote_sepet, list) and remote_sepet:
+                    if not self.sepet:
+                        self.sepet = remote_sepet
+                    elif remote_sepet != self.sepet:
+                        self.sepet = remote_sepet
                 with open(DATA_FILE, "w", encoding="utf-8") as f:
                     json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu, "sepet": self.sepet}, f, ensure_ascii=False, indent=2)
                 return True
@@ -905,21 +992,75 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             pass
         return False
 
+    def _firebase_login(self):
+        try:
+            api_key = config.firebase_api_key
+            email = config.firebase_email
+            password = config.firebase_password
+            if not api_key or not email or not password:
+                return False
+            r = requests.post(
+                f"https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key={api_key}",
+                json={"email": email, "password": password, "returnSecureToken": True},
+                timeout=10
+            )
+            if r.status_code == 200:
+                data = r.json()
+                self._firebase_token = data.get("idToken")
+                self._firebase_refresh_token = data.get("refreshToken")
+                self._firebase_token_expiry = time.time() + int(data.get("expiresIn", 3600)) - 60
+                self._log("Firebase auth basarili")
+                return True
+            else:
+                self._log(f"Firebase auth hatasi: {r.status_code}")
+        except Exception as e:
+            self._log(f"Firebase login hatasi: {e}")
+        return False
+
+    def _firebase_refresh(self):
+        try:
+            api_key = config.firebase_api_key
+            if not api_key or not self._firebase_refresh_token:
+                return self._firebase_login()
+            r = requests.post(
+                f"https://securetoken.googleapis.com/v1/token?key={api_key}",
+                json={"grant_type": "refresh_token", "refresh_token": self._firebase_refresh_token},
+                timeout=10
+            )
+            if r.status_code == 200:
+                data = r.json()
+                self._firebase_token = data.get("id_token")
+                self._firebase_refresh_token = data.get("refresh_token")
+                self._firebase_token_expiry = time.time() + int(data.get("expires_in", 3600)) - 60
+                return True
+        except Exception:
+            pass
+        return self._firebase_login()
+
+    def _get_firebase_token(self):
+        if self._firebase_token and time.time() < self._firebase_token_expiry:
+            return self._firebase_token
+        if self._firebase_refresh():
+            return self._firebase_token
+        return None
+
     def _initial_firebase_sync(self):
         def sync():
+            self._firebase_login()
             if self._firebase_pull_local():
+                self._dirty = False
                 self.app.after(0, self._on_firebase_sync)
             else:
                 threading.Thread(target=self._firebase_push, daemon=True).start()
         threading.Thread(target=sync, daemon=True).start()
-        self.app.after(5000, self._periodic_firebase_sync)
+        self.app.after(30000, self._periodic_firebase_sync)
 
     def _periodic_firebase_sync(self):
         def sync():
             if self._firebase_pull_local():
                 self.app.after(0, self._on_firebase_sync)
         threading.Thread(target=sync, daemon=True).start()
-        self.app.after(5000, self._periodic_firebase_sync)
+        self.app.after(30000, self._periodic_firebase_sync)
 
     def _on_firebase_sync(self):
         self._refresh_models()
@@ -930,99 +1071,64 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     def _check_update(self):
         def check():
             try:
-                self._log("Versiyon kontrolü yapılıyor...")
-                r = requests.get(f"{FIREBASE_URL}/app_version.json", timeout=10)
-                self._log(f"Firebase response: {r.status_code}")
+                self._log("Versiyon kontrolu yapiliyor...")
+                token = self._get_firebase_token()
+                auth = f"?auth={token}" if token else ""
+                r = requests.get(f"{FIREBASE_URL}/app_version.json{auth}", timeout=10)
                 if r.status_code != 200:
-                    self._log(f"Firebase hata: {r.status_code}")
+                    self._log(f"Versiyon kontrolu hatasi: {r.status_code}")
                     return
                 data = r.json()
-                self._log(f"Firebase data: {data}")
                 if isinstance(data, dict):
-                    remote_ver = data.get("version", 0)
+                    remote_ver = str(data.get("version", 0))
                     download_url = data.get("url", "")
+                    remote_sha256 = data.get("sha256", "")
                 elif isinstance(data, (int, float)):
-                    remote_ver = int(data)
+                    remote_ver = str(int(data))
                     download_url = ""
+                    remote_sha256 = ""
                 else:
-                    self._log(f"Beklenmeyen data formatı: {type(data)}")
                     return
-                self._log(f"Remote: {remote_ver}, Local: {APP_VERSION}, URL: {download_url}")
+                self._log(f"Versiyon: remote={remote_ver}, local={APP_VERSION}")
                 if _parse_version(remote_ver) > _parse_version(APP_VERSION) and download_url:
-                    self.app.after(0, lambda: self._do_update(download_url, remote_ver))
+                    self.app.after(0, lambda: self._do_update(download_url, remote_ver, remote_sha256))
                 else:
-                    self._log("Güncelleme yok veya URL boş")
+                    self._log("Guncelleme yok")
             except Exception as e:
-                self._log(f"Versiyon kontrolü hatası: {e}")
+                self._log(f"Versiyon kontrolu hatasi: {e}")
         threading.Thread(target=check, daemon=True).start()
 
-    def _do_update(self, url, new_ver):
-        if not messagebox.askyesno("Güncelleme", f"Yeni versiyon mevcut (v{new_ver}).\nİndirilsin mi?"):
-            self._log("Güncelleme iptal edildi (Hayır basıldı)")
+    def _do_update(self, url, new_ver, expected_sha256=""):
+        if not messagebox.askyesno("Güncelleme", f"Yeni versiyon mevcut (v{new_ver}).\nGüncelleme yapılsın mı?\n\nUygulama kapanacak ve otomatik yeniden açılacak."):
+            self._log("Güncelleme iptal edildi")
             return
-        self._log(f"Güncelleme indiriliyor: v{new_ver}")
 
-        def download():
-            try:
-                self._log("Download thread started")
-                r = requests.get(url, timeout=120, stream=True)
-                self._log(f"Download response: {r.status_code}")
-                if r.status_code != 200:
-                    self._log(f"Download failed: HTTP {r.status_code}")
-                    self.app.after(0, lambda: messagebox.showerror("Hata", "İndirme başarısız."))
-                    return
-                total = int(r.headers.get("Content-Length", 0))
-                downloaded = 0
-                # Download to temp directory (not app directory!)
-                temp_dir = os.path.join(os.environ.get("TEMP", "."), "OnvoScooterUpdate")
-                os.makedirs(temp_dir, exist_ok=True)
-                tmp_exe = os.path.join(temp_dir, "OnvoScooter.exe")
-                with open(tmp_exe, "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-                        downloaded += len(chunk)
-                        if total > 0:
-                            pct = round(downloaded * 100 / total)
-                        else:
-                            pct = 0
-                        self.app.after(0, lambda p=pct: self.durum.config(text=f"Güncelleme indiriliyor... %{p}"))
+        self._log(f"Güncelleme başlatılıyor: v{new_ver}")
+        self.durum.config(text="Güncelleme hazırlanıyor...")
 
-                self._log(f"Download complete, file size: {os.path.getsize(tmp_exe)}")
-                self.app.after(0, lambda: self.durum.config(text="Güncelleme hazırlanıyor..."))
+        updater_path = os.path.join(APP_DIR, "updater.exe")
+        if not os.path.exists(updater_path):
+            self._log("updater.exe bulunamadı!")
+            messagebox.showerror("Hata", "Güncelleme aracı (updater.exe) bulunamadı.")
+            return
 
-                # Batch file for atomic replace (from temp to app dir)
-                bat_path = os.path.join(APP_DIR, "updater.bat")
-                new_exe = os.path.join(APP_DIR, "OnvoScooter.exe")
-                bak_exe = new_exe + ".bak"
+        current_pid = os.getpid()
+        args = [
+            updater_path,
+            "--app-dir", APP_DIR,
+            "--pid", str(current_pid),
+            "--url", url,
+            "--sha256", expected_sha256,
+            "--exe", "OnvoScooter.exe",
+        ]
 
-                bat_content = f'''@echo off
-timeout /t 2 /nobreak >nul
-move /y "{new_exe}" "{new_exe}.bak" >nul 2>&1
-move /y "{tmp_exe}" "{new_exe}" >nul 2>&1
-if errorlevel 1 (
-    move /y "{new_exe}.bak" "{new_exe}" >nul 2>&1
-) else (
-    start "" "{new_exe}"
-)
-del "{new_exe}.bak" 2>nul
-del "%~f0" 2>nul
-'''
-
-                with open(bat_path, "w", encoding="utf-8") as f:
-                    f.write(bat_content)
-
-                self._log(f"Updater batch written: {bat_path}")
-
-                # Batch'i ayrı süreçte başlat
-                proc = subprocess.Popen(["cmd", "/c", bat_path], shell=True)
-                self._log(f"Updater batch launched with PID {proc.pid}")
-                self.app.after(500, self.app.destroy)
-
-            except Exception as e:
-                self._log(f"Download/Updater error: {e}")
-                self.app.after(0, lambda: messagebox.showerror("Hata", f"Güncelleme başarısız:\n{e}"))
-        self._log("Starting download thread")
-        threading.Thread(target=download, daemon=True).start()
+        try:
+            subprocess.Popen(args, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            self._log(f"Updater başlatıldı (PID: {current_pid}, URL: {url[:60]}...)")
+            self.app.after(500, self.app.destroy)
+        except Exception as e:
+            self._log(f"Updater başlatma hatası: {e}")
+            messagebox.showerror("Hata", f"Güncelleme başlatılamadı:\n{e}")
 
     def _periodic_update_check(self):
         self._check_update()
@@ -1164,12 +1270,13 @@ del "%~f0" 2>nul
 
         for idx, v in enumerate(ordered):
             fiyat = record_get(v, "Satis Fiyati")
+            tag = "evenrow" if idx % 2 == 0 else "oddrow"
             iid = self.tablo.insert("", "end", iid=str(idx), values=(
                 record_get(v, "Kullanilan Urun"),
                 record_get(v, "Stok Adi"),
                 record_get(v, "Kullanilan Cihaz"),
                 format_price(fiyat) if fiyat else "",
-            ))
+            ), tags=(tag,))
             if not clear_sel:
                 vals = (record_get(v, "Kullanilan Urun"), record_get(v, "Stok Adi"), record_get(v, "Kullanilan Cihaz"))
                 if vals in saved_sel:
@@ -1205,18 +1312,28 @@ del "%~f0" 2>nul
     def _refresh_all(self):
         self._cleanup_trash()
         self._save()
+        self.arama.delete(0, tk.END)
         self.arama_var.set("")
-        self.model_var.set("Tümü")
         self.urun_entry.delete(0, tk.END)
         self.stok_entry.delete(0, tk.END)
         self.cihaz_entry.delete(0, tk.END)
         self.fiyat_entry.delete(0, tk.END)
         self.yuzde_var.set("")
         self._secili_fiyat = ""
-        self._refresh_models()
-        self._refresh_table(clear_sel=True)
-        self._log("Yenile - veriler yenilendi")
-        self.app.focus_set()
+        def _sync_and_refresh():
+            if self._firebase_pull_local():
+                self.app.after(0, lambda: (
+                    self._refresh_models(),
+                    self._refresh_table(clear_sel=True),
+                    self._log("Yenile - buluttan guncellendi"),
+                ))
+            else:
+                self.app.after(0, lambda: (
+                    self._refresh_models(),
+                    self._refresh_table(clear_sel=True),
+                    self._log("Yenile - veriler yenilendi"),
+                ))
+        threading.Thread(target=_sync_and_refresh, daemon=True).start()
 
     def _update_clock(self):
         tarih = time.strftime("%d.%m.%Y")
@@ -1387,7 +1504,7 @@ del "%~f0" 2>nul
                 if self._sepet_refresh:
                     self._sepet_refresh()
 
-            tk.Button(miktar_pencere, text="Ekle", font=("Arial", 10, "bold"), command=onayla).pack(pady=10)
+            ttkb.Button(miktar_pencere, text="Ekle", style="Modern.TButton", bootstyle="primary", command=onayla).pack(pady=10)
             miktar_pencere.bind("<Return>", lambda e: onayla())
         else:
             eklenen = 0
@@ -1431,7 +1548,7 @@ del "%~f0" 2>nul
         pencere.attributes("-topmost", True)
         ax = self.app.winfo_x()
         ay = self.app.winfo_y()
-        pencere.geometry(f"650x350+{ax}+{ay}")
+        pencere.geometry(f"550x260+{ax}+{ay}")
         pencere.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None), pencere.destroy()))
         self._track_window(pencere)
 
@@ -1451,33 +1568,31 @@ del "%~f0" 2>nul
         top_bar.bind("<B1-Motion>", _do_drag)
         self._sepet_count_label = tk.Label(top_bar, text=f"({len(self.sepet)} ürün)", font=("Arial", 10), fg="#666", bg="#E8F0FE")
         self._sepet_count_label.pack(side="left", padx=5)
-        sepet_close = tk.Button(top_bar, text=" Kapat", image=self._btn_icons[8], compound="left",
-                               font=("Segoe UI Emoji", 9), bd=0, cursor="hand2", bg="#E8F0FE", activebackground="#D0E4FA",
-                               command=lambda: (pencere.destroy(), setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None)))
+        sepet_close = ttkb.Button(top_bar, text=" Kapat", image=self._btn_icons[8], compound="left",
+                                style="DialogDanger.TButton", bootstyle="danger",
+                                command=lambda: (pencere.destroy(), setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None)))
         sepet_close.pack(side="right", padx=5, pady=3)
 
-        cols = ("urun", "stok", "cihaz", "birim", "miktar", "toplam")
-        tablo = ttk.Treeview(pencere, columns=cols, show="headings", height=10, selectmode="browse")
-        tablo.heading("urun", text="Ürün Adı")
-        tablo.heading("stok", text="Stok Adı")
+        cols = ("urun", "stok", "cihaz", "miktar", "toplam")
+        tablo = ttk.Treeview(pencere, columns=cols, show="headings", height=4, selectmode="browse")
+        tablo.heading("urun", text="Ürün")
+        tablo.heading("stok", text="Stok")
         tablo.heading("cihaz", text="Cihaz")
-        tablo.heading("birim", text="Birim Fiyat")
         tablo.heading("miktar", text="Miktar")
         tablo.heading("toplam", text="Toplam")
 
         tablo.column("urun", width=180)
         tablo.column("stok", width=120)
         tablo.column("cihaz", width=80)
-        tablo.column("birim", width=70, anchor="e")
         tablo.column("miktar", width=50, anchor="center")
         tablo.column("toplam", width=80, anchor="e")
 
         tablo.pack(fill="both", expand=True, padx=5, pady=(5, 0))
 
-        alt = tk.Frame(pencere, bg="white")
+        alt = tk.Frame(pencere)
         alt.pack(fill="x", padx=5, pady=5)
 
-        toplam_label = tk.Label(alt, text="Toplam: 0 TL", font=("Arial", 11, "bold"), bg="white", fg="#1F4E79")
+        toplam_label = tk.Label(alt, text="Toplam: 0 TL", font=("Arial", 11, "bold"), fg="#1F4E79")
         toplam_label.pack(side="left")
 
         def refresh_cart():
@@ -1489,7 +1604,6 @@ del "%~f0" 2>nul
                     s["Kullanilan Urun"],
                     s["Stok Adi"],
                     s.get("Kullanilan Cihaz", ""),
-                    f'{s["Birim Fiyat"]:.2f}'.replace(".", ","),
                     s["Miktar"],
                     f'{s["Toplam"]:.2f}'.replace(".", ","),
                 ))
@@ -1526,14 +1640,14 @@ del "%~f0" 2>nul
                 self.sepet.clear()
                 refresh_cart()
 
-        btn_frame = tk.Frame(pencere, bg="white")
+        btn_frame = tk.Frame(pencere)
         btn_frame.pack(fill="x", padx=5, pady=(0, 5))
 
-        btn_inner = tk.Frame(btn_frame, bg="white")
+        btn_inner = tk.Frame(btn_frame)
         btn_inner.pack(anchor="center")
 
-        tk.Button(btn_inner, text=" Çıkar", image=self._btn_icons[7], compound="left", font=("Segoe UI Emoji", 9), command=sepetten_cikar).pack(side="left", padx=3)
-        tk.Button(btn_inner, text=" Temizle", image=self._btn_icons[10], compound="left", font=("Segoe UI Emoji", 9), command=sepeti_temizle).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Çıkar", image=self._btn_icons[7], compound="left", style="DialogDanger.TButton", bootstyle="danger", command=sepetten_cikar).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Temizle", image=self._btn_icons[10], compound="left", style="DialogWarning.TButton", bootstyle="warning", command=sepeti_temizle).pack(side="left", padx=3)
         def open_offer_and_close_cart():
             if not self.sepet:
                 messagebox.showwarning("Uyarı", "Sepet boş.")
@@ -1542,45 +1656,40 @@ del "%~f0" 2>nul
             self._sepet_pencere = None
             self._sepet_refresh = None
             self._create_offer()
-        tk.Button(btn_inner, text=" Teklif Oluştur", image=self._btn_icons[11], compound="left", font=("Segoe UI Emoji", 9), command=open_offer_and_close_cart).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Teklif Oluştur", image=self._btn_icons[11], compound="left", style="DialogSuccess.TButton", bootstyle="success", command=open_offer_and_close_cart).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Kapat", image=self._close_red_img, compound="left", style="DialogSecondary.TButton", bootstyle="secondary",
+                  command=lambda: (setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None), pencere.destroy())).pack(side="left", padx=3)
 
     def _track_window(self, win):
         if not hasattr(self, '_tracked_windows'):
             self._tracked_windows = set()
-            def _on_unmap(event):
-                if event.widget == self.app:
+            def _hide_tracked():
+                for w in list(self._tracked_windows):
                     try:
-                        if self.app.state() != "iconic":
-                            return
+                        if w.winfo_exists():
+                            w.destroy()
                     except Exception:
-                        return
-                    for w in list(self._tracked_windows):
-                        try:
-                            if w.winfo_exists():
-                                w.destroy()
-                        except Exception:
-                            pass
-                    self._tracked_windows.clear()
-                    if hasattr(self, '_sepet_pencere'):
-                        self._sepet_pencere = None
-                        self._sepet_refresh = None
-                    if hasattr(self, '_teklif_pencere'):
-                        self._teklif_pencere = None
-                    if hasattr(self, '_cop_pencere'):
-                        self._cop_pencere = None
-            self.app.bind("<Unmap>", _on_unmap)
+                        pass
+                self._tracked_windows.clear()
+                if hasattr(self, '_sepet_pencere'):
+                    self._sepet_pencere = None
+                    self._sepet_refresh = None
+                if hasattr(self, '_teklif_pencere'):
+                    self._teklif_pencere = None
+                if hasattr(self, '_cop_pencere'):
+                    self._cop_pencere = None
             def _on_focus_out(event):
-                try:
-                    if self.app.state() == "iconic":
-                        return
-                except Exception:
-                    return
-                self._destroy_tracked()
-            self.app.bind("<FocusOut>", _on_focus_out)
+                if event.widget == self.app:
+                    self.app.after(100, lambda: (
+                        _hide_tracked() if not any(
+                            w.winfo_exists() and
+                            w.winfo_x() <= self.app.winfo_pointerx() <= w.winfo_x() + w.winfo_width() and
+                            w.winfo_y() <= self.app.winfo_pointery() <= w.winfo_y() + w.winfo_height()
+                            for w in list(self._tracked_windows)
+                        ) else None
+                    ))
+            self.app.bind("<FocusOut>", _on_focus_out, add="+")
         self._tracked_windows.add(win)
-        def _on_child_focus_out(event):
-            self.app.after(50, self._destroy_tracked)
-        win.bind("<FocusOut>", _on_child_focus_out)
         def _track():
             if not win.winfo_exists():
                 self._tracked_windows.discard(win)
@@ -1604,6 +1713,8 @@ del "%~f0" 2>nul
         _track()
 
     def _destroy_tracked(self):
+        if getattr(self, '_suppress_destroy', False):
+            return
         if not hasattr(self, '_tracked_windows'):
             return
         try:
@@ -1611,6 +1722,22 @@ del "%~f0" 2>nul
                 return
         except Exception:
             return
+        px = self.app.winfo_pointerx()
+        py = self.app.winfo_pointery()
+        for w in list(self._tracked_windows):
+            try:
+                if not w.winfo_exists():
+                    continue
+                wx = w.winfo_x()
+                wy = w.winfo_y()
+                ww = w.winfo_width()
+                wh = w.winfo_height()
+                if wx <= px <= wx + ww and wy <= py <= wy + wh:
+                    return
+                if w.focus_get() is not None:
+                    return
+            except Exception:
+                pass
         root = self.app.winfo_toplevel()
         try:
             focused = root.focus_get()
@@ -1678,7 +1805,7 @@ del "%~f0" 2>nul
         sep = tk.Frame(win, height=2, bg="#1F4E79")
         sep.pack(fill="x", padx=20, pady=(5,5))
 
-        btn = tk.Button(win, text="TEKLIF OLUSTUR", command=None, font=("Arial", 13, "bold"), bg="#1F4E79", fg="white", activebackground="#2D6CA2", activeforeground="white", relief="flat", cursor="hand2", padx=30, pady=8)
+        btn = ttkb.Button(win, text="TEKLIF OLUSTUR", command=None, style="Modern.TButton", bootstyle="primary")
 
         def kaydet():
             ad = musteri_ad.get().strip() or "Müşteri"
@@ -1889,6 +2016,10 @@ del "%~f0" 2>nul
                 self._notify("Teklif Kaydedildi", f"Masaustune kaydedildi: {dosya_adi}")
                 self.sepet.clear()
                 
+                import base64 as _b64
+                with open(yedek_yolu, "rb") as _f:
+                    xlsx_b64 = _b64.b64encode(_f.read()).decode("utf-8")
+
                 # Save offer record
                 teklif_kaydi = {
                     "no": teklif_no,
@@ -1901,6 +2032,7 @@ del "%~f0" 2>nul
                     "toplam": toplam,
                     "urunler": [{"urun": s["Kullanilan Urun"], "stok": s["Stok Adi"], "cihaz": s.get("Kullanilan Cihaz", ""), "fiyat": s["Birim Fiyat"], "miktar": s["Miktar"], "toplam": s["Toplam"]} for s in sepet_kopya],
                     "dosya": dosya_adi,
+                    "xlsx_base64": xlsx_b64,
                 }
                 teklifler = []
                 if os.path.exists(TEKLIF_DATA):
@@ -1912,8 +2044,10 @@ del "%~f0" 2>nul
                 teklifler.insert(0, teklif_kaydi)
                 with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
                     json.dump(teklifler, f, ensure_ascii=False, indent=2)
-                threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json", json=teklifler, timeout=10), daemon=True).start()
-                
+                _t = self._get_firebase_token()
+                _a = f"?auth={_t}" if _t else ""
+                threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json{_a}", json=teklifler, timeout=15), daemon=True).start()
+
                 messagebox.showinfo("Basarili", f"Teklif kaydedildi:\n{kayit_yolu}")
                 win.destroy()
             except Exception as e:
@@ -1945,20 +2079,24 @@ del "%~f0" 2>nul
                 pass
 
         if not teklifler:
-            try:
-                r = requests.get(f"{FIREBASE_URL}/teklifler.json", timeout=10)
-                if r.status_code == 200:
-                    remote_teklifler = r.json()
-                    if isinstance(remote_teklifler, list) and remote_teklifler:
-                        teklifler = remote_teklifler
-                        os.makedirs(os.path.dirname(TEKLIF_DATA), exist_ok=True)
-                        with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
-                            json.dump(teklifler, f, ensure_ascii=False, indent=2)
-            except Exception:
-                pass
-
-        if not teklifler:
-            messagebox.showinfo("Teklifler", "Henüz kayıtlı teklif yok.")
+            def _fetch_remote():
+                try:
+                    _t = self._get_firebase_token()
+                    _a = f"?auth={_t}" if _t else ""
+                    r = requests.get(f"{FIREBASE_URL}/teklifler.json{_a}", timeout=5)
+                    if r.status_code == 200:
+                        remote_teklifler = r.json()
+                        if isinstance(remote_teklifler, list) and remote_teklifler:
+                            os.makedirs(os.path.dirname(TEKLIF_DATA), exist_ok=True)
+                            with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
+                                json.dump(remote_teklifler, f, ensure_ascii=False, indent=2)
+                            self.app.after(0, lambda: self._open_teklifler())
+                            return
+                except Exception:
+                    pass
+                self.app.after(0, lambda: messagebox.showinfo("Teklifler", "Henüz kayitli teklif yok."))
+            self._log("Teklifler buluttan cekiliyor...")
+            threading.Thread(target=_fetch_remote, daemon=True).start()
             return
 
         win = tk.Toplevel(self.app)
@@ -1975,7 +2113,7 @@ del "%~f0" 2>nul
         top_bar = tk.Frame(win, bg="#E8F0FE", cursor="hand2")
         top_bar.pack(side="top", fill="x")
         tk.Label(top_bar, text="  Kayıtlı Teklifler", font=("Arial", 10, "bold"), fg="#1F4E79", bg="#E8F0FE").pack(side="left", padx=5, pady=3)
-        tk.Button(top_bar, text=" Kapat", image=self._close_red_img, compound="left", font=("Segoe UI Emoji", 9), bd=0, cursor="hand2", bg="#E8F0FE", activebackground="#D0E4FA",
+        ttkb.Button(top_bar, text=" Kapat", image=self._close_red_img, compound="left", style="DialogDanger.TButton", bootstyle="danger",
                   command=lambda: (setattr(self, '_teklif_pencere', None), win.destroy())).pack(side="right", padx=5, pady=3)
 
         _drag_data = [0, 0]
@@ -2030,6 +2168,18 @@ del "%~f0" 2>nul
             else:
                 idx = tbl.index(sel[0])
                 t = teklifler[idx]
+                xlsx_b64 = t.get("xlsx_base64", "")
+                if xlsx_b64:
+                    try:
+                        import base64
+                        os.makedirs(TEKLIF_DIR, exist_ok=True)
+                        xlsx_path = os.path.join(TEKLIF_DIR, dosya_adi)
+                        with open(xlsx_path, "wb") as f:
+                            f.write(base64.b64decode(xlsx_b64))
+                        os.startfile(xlsx_path)
+                    except Exception:
+                        messagebox.showinfo("Bilgi", "Excel dosyasi olusturulamadi.\nTeklif tekrar olusturulmali.", parent=win)
+                    return
                 pdf_b64 = t.get("pdf_base64", "")
                 if pdf_b64:
                     try:
@@ -2056,7 +2206,6 @@ del "%~f0" 2>nul
         def save_json():
             with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
                 json.dump(teklifler, f, ensure_ascii=False, indent=2)
-            threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json", json=teklifler, timeout=10), daemon=True).start()
 
         def sil():
             sel = tbl.selection()
@@ -2187,7 +2336,7 @@ del "%~f0" 2>nul
                 refresh_table()
                 dw.destroy()
 
-            tk.Button(dw, text="Kaydet", font=("Arial", 10, "bold"), command=kaydet).grid(row=7, column=0, columnspan=2, pady=15)
+            ttkb.Button(dw, text="Kaydet", style="ModernSuccess.TButton", bootstyle="success", command=kaydet).grid(row=7, column=0, columnspan=2, pady=15)
 
         def pdf_yap():
             sel = tbl.selection()
@@ -2307,7 +2456,9 @@ del "%~f0" 2>nul
                     teklifler[idx]["pdf_base64"] = pdf_b64
                     with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
                         json.dump(teklifler, f, ensure_ascii=False, indent=2)
-                    threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json", json=teklifler, timeout=15), daemon=True).start()
+                    _t = self._get_firebase_token()
+                    _a = f"?auth={_t}" if _t else ""
+                    threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json{_a}", json=teklifler, timeout=15), daemon=True).start()
                 except Exception:
                     pass
                 os.startfile(pdf_path)
@@ -2316,11 +2467,310 @@ del "%~f0" 2>nul
             except Exception as e:
                 messagebox.showwarning("Hata", f"PDF olusturulamadi:\n{str(e)[:100]}", parent=win)
 
-        tk.Button(btn_frame, text=" İndir / Aç", font=("Arial", 10, "bold"), command=indir).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" PDF", font=("Arial", 10), command=pdf_yap).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Düzenle", font=("Arial", 10), command=duzenle).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Sil", font=("Arial", 10), command=sil).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Kapat", font=("Arial", 10), command=win.destroy).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" İndir / Aç", style="Dialog.TButton", bootstyle="primary", command=indir).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" PDF", style="DialogSuccess.TButton", bootstyle="success", command=pdf_yap).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Düzenle", style="DialogWarning.TButton", bootstyle="warning", command=duzenle).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Sil", style="DialogDanger.TButton", bootstyle="danger", command=sil).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Kapat", style="DialogSecondary.TButton", bootstyle="secondary", command=win.destroy).pack(side="left", padx=5)
+
+    def _open_cloud_teklifler(self):
+        win = tk.Toplevel(self.app)
+        win.title("Bulut Teklifleri (Admin)")
+        win.geometry("750x400")
+        win.attributes("-topmost", True)
+
+        top = tk.Frame(win, bg="#E74C3C")
+        top.pack(fill="x")
+        tk.Label(top, text="  BULUT TEKLIPLERI - ADMIN", font=("Arial", 11, "bold"), fg="white", bg="#E74C3C", padx=10, pady=5).pack(side="left")
+        ttkb.Button(top, text="Kapat", style="DialogDanger.TButton", bootstyle="danger", command=win.destroy).pack(side="right", padx=5, pady=3)
+
+        status = tk.Label(win, text="Yukleniyor...", font=("Arial", 9), fg="#666")
+        status.pack(fill="x", padx=10, pady=(5, 0))
+
+        cols = ("Teklif No", "Tarih", "Musteri", "Firma", "Tutar")
+        tbl = ttk.Treeview(win, columns=cols, show="headings", height=12, selectmode="extended")
+        for c in cols:
+            tbl.heading(c, text=c)
+        tbl.column("Teklif No", width=140)
+        tbl.column("Tarih", width=80)
+        tbl.column("Musteri", width=140)
+        tbl.column("Firma", width=140)
+        tbl.column("Tutar", width=100, anchor="e")
+        tbl.pack(fill="both", expand=True, padx=10, pady=5)
+
+        scrollbar = ttk.Scrollbar(win, orient="vertical", command=tbl.yview)
+        tbl.configure(yscrollcommand=scrollbar.set)
+
+        cloud_teklifler = []
+
+        def fetch():
+            tbl.delete(*tbl.get_children())
+            status.config(text="Buluttan yukleniyor...")
+            try:
+                token = self._get_firebase_token()
+                auth = f"?auth={token}" if token else ""
+                r = requests.get(f"{FIREBASE_URL}/teklifler.json{auth}", timeout=15)
+                if r.status_code == 200:
+                    data = r.json()
+                    cloud_teklifler.clear()
+                    if isinstance(data, list):
+                        cloud_teklifler.extend(data)
+                    for t in cloud_teklifler:
+                        tutar = f'{t.get("toplam", 0):,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
+                        tbl.insert("", "end", values=(
+                            t.get("no", ""), t.get("tarih", ""),
+                            t.get("musteri", ""), t.get("firma", ""), tutar
+                        ))
+                    status.config(text=f"Toplam: {len(cloud_teklifler)} teklif (bulut)")
+                else:
+                    status.config(text=f"Hata: {r.status_code}")
+            except Exception as e:
+                status.config(text=f"Hata: {e}")
+
+        def cloud_sil():
+            sel = tbl.selection()
+            if not sel:
+                messagebox.showwarning("Uyari", "Bir teklif secin.", parent=win)
+                return
+            count = len(sel)
+            if not messagebox.askyesno("Onay", f"{count} teklif BULUTTAN silinsin mi?\n\nBu islem geri alinamaz!", parent=win):
+                return
+            indices = sorted([tbl.index(s) for s in sel], reverse=True)
+            for idx in indices:
+                if 0 <= idx < len(cloud_teklifler):
+                    cloud_teklifler.pop(idx)
+            try:
+                token = self._get_firebase_token()
+                auth = f"?auth={token}" if token else ""
+                requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=cloud_teklifler, timeout=15)
+                self._log(f"Buluttan {count} teklif silindi")
+            except Exception as e:
+                messagebox.showerror("Hata", f"Bulut guncellenemedi: {e}", parent=win)
+            fetch()
+
+        def cloud_temizle():
+            if not cloud_teklifler:
+                messagebox.showinfo("Bilgi", "Bulutta teklif yok.", parent=win)
+                return
+            count = len(cloud_teklifler)
+            if not messagebox.askyesno("Onay", f"TUM {count} teklif BULUTTAN silinsin mi?\n\nBu islem geri alinamaz!", parent=win):
+                return
+            cloud_teklifler.clear()
+            try:
+                token = self._get_firebase_token()
+                auth = f"?auth={token}" if token else ""
+                requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=[], timeout=15)
+                self._log(f"Buluttan tum teklifler silindi ({count})")
+            except Exception as e:
+                messagebox.showerror("Hata", f"Bulut guncellenemedi: {e}", parent=win)
+            fetch()
+
+        def cloud_save():
+            try:
+                token = self._get_firebase_token()
+                auth = f"?auth={token}" if token else ""
+                requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=cloud_teklifler, timeout=15)
+                return True
+            except Exception as e:
+                messagebox.showerror("Hata", f"Bulut guncellenemedi: {e}", parent=win)
+                return False
+
+        def cloud_indir():
+            sel = tbl.selection()
+            if not sel:
+                messagebox.showwarning("Uyari", "Bir teklif secin.", parent=win)
+                return
+            idx = tbl.index(sel[0])
+            if idx < 0 or idx >= len(cloud_teklifler):
+                return
+            t = cloud_teklifler[idx]
+            dosya_adi = t.get("dosya", "")
+            xlsx_b64 = t.get("xlsx_base64", "")
+            pdf_b64 = t.get("pdf_base64", "")
+            masaustu = os.path.join(os.path.expanduser("~"), "Desktop")
+
+            if xlsx_b64:
+                try:
+                    import base64
+                    path = os.path.join(masaustu, dosya_adi)
+                    with open(path, "wb") as f:
+                        f.write(base64.b64decode(xlsx_b64))
+                    os.startfile(path)
+                    status.config(text=f"Indirildi: {dosya_adi}")
+                    return
+                except Exception as e:
+                    messagebox.showerror("Hata", f"Indirilemedi: {e}", parent=win)
+                    return
+
+            if pdf_b64:
+                try:
+                    import base64
+                    pdf_adi = dosya_adi.replace(".xlsx", ".pdf") if dosya_adi else "teklif.pdf"
+                    path = os.path.join(masaustu, pdf_adi)
+                    with open(path, "wb") as f:
+                        f.write(base64.b64decode(pdf_b64))
+                    os.startfile(path)
+                    status.config(text=f"Indirildi: {pdf_adi}")
+                    return
+                except Exception as e:
+                    messagebox.showerror("Hata", f"Indirilemedi: {e}", parent=win)
+                    return
+
+            messagebox.showinfo("Bilgi", "Bu teklifin dosyasi bulutta yok.\nSadece bilgiler kayitli.", parent=win)
+
+        def cloud_duzenle():
+            sel = tbl.selection()
+            if not sel:
+                messagebox.showwarning("Uyari", "Bir teklif secin.", parent=win)
+                return
+            idx = tbl.index(sel[0])
+            if idx < 0 or idx >= len(cloud_teklifler):
+                return
+            t = cloud_teklifler[idx]
+
+            dw = tk.Toplevel(win)
+            dw.title("Teklif Duzenle (Bulut)")
+            dw.geometry("400x320")
+            dw.resizable(False, False)
+            dw.attributes("-topmost", True)
+            dw.update_idletasks()
+            px = dw.winfo_screenwidth()
+            py = dw.winfo_screenheight()
+            dw.geometry(f"+{(px-400)//2}+{(py-320)//2}")
+
+            fields = [
+                ("Teklif No:", "no"), ("Musteri:", "musteri"),
+                ("Firma:", "firma"), ("Telefon:", "telefon"),
+                ("Adres:", "adres"), ("Odeme:", "odeme"), ("Tarih:", "tarih"),
+            ]
+            vars_dict = {}
+            for row_i, (label, key) in enumerate(fields):
+                tk.Label(dw, text=label, font=("Arial", 10)).grid(row=row_i, column=0, sticky="e", padx=10, pady=4)
+                v = tk.StringVar(value=t.get(key, ""))
+                vars_dict[key] = v
+                if key == "odeme":
+                    cb = ttk.Combobox(dw, textvariable=v, values=["Pesin", "Kredi Karti", "EFT", "Havale"], state="readonly", width=28)
+                    cb.grid(row=row_i, column=1, pady=4)
+                else:
+                    tk.Entry(dw, textvariable=v, width=30).grid(row=row_i, column=1, pady=4)
+
+            def kaydet():
+                for key, v in vars_dict.items():
+                    cloud_teklifler[idx][key] = v.get().strip()
+                if cloud_save():
+                    self._log(f"Bulut teklif guncellendi: {vars_dict['no'].get()}")
+                    fetch()
+                    dw.destroy()
+
+            ttkb.Button(dw, text="Kaydet", style="ModernSuccess.TButton", bootstyle="success", command=kaydet).grid(row=len(fields), column=0, columnspan=2, pady=15)
+
+        def cloud_pdf():
+            sel = tbl.selection()
+            if not sel:
+                messagebox.showwarning("Uyari", "Bir teklif secin.", parent=win)
+                return
+            idx = tbl.index(sel[0])
+            if idx < 0 or idx >= len(cloud_teklifler):
+                return
+            t = cloud_teklifler[idx]
+            dosya = t.get("dosya", "")
+            pdf_adi = dosya.replace(".xlsx", ".pdf") if dosya else f"Teklif_{t.get('no','')}.pdf"
+            masaustu = os.path.join(os.path.expanduser("~"), "Desktop")
+            pdf_path = os.path.join(masaustu, pdf_adi)
+            try:
+                from fpdf import FPDF
+                pdf = FPDF()
+                pdf.add_page()
+                try:
+                    pdf.add_font("TkFont", "", "C:/Windows/Fonts/calibri.ttf", uni=True)
+                    pdf.add_font("TkFont", "B", "C:/Windows/Fonts/calibrib.ttf", uni=True)
+                    fn = "TkFont"
+                except Exception:
+                    pdf.add_font("TkFont", "", "C:/Windows/Fonts/arial.ttf", uni=True)
+                    pdf.add_font("TkFont", "B", "C:/Windows/Fonts/arialbd.ttf", uni=True)
+                    fn = "TkFont"
+                logo_path = os.path.join(APP_DIR, "logo.ico")
+                if not os.path.exists(logo_path) and getattr(sys, 'frozen', False):
+                    logo_path = os.path.join(BUNDLE_DIR, "logo.ico")
+                if os.path.exists(logo_path):
+                    try:
+                        tmp = os.path.join(os.environ.get("TEMP", "."), "_logo_cloud.png")
+                        from PIL import Image as PILImg
+                        img = PILImg.open(logo_path)
+                        img.save(tmp, "PNG")
+                        pdf.image(tmp, x=10, y=8, w=25, h=25)
+                        os.remove(tmp)
+                    except Exception:
+                        pass
+                pdf.set_font(fn, "B", 18)
+                pdf.cell(0, 10, "KAEN ELEKTRIK ELEKTRONIK", ln=True, align="C")
+                pdf.set_font(fn, "B", 12)
+                pdf.cell(0, 8, "ONVO SCOOTER YETKILI SERVISI", ln=True, align="C")
+                pdf.ln(4)
+                pdf.set_font(fn, "B", 12)
+                pdf.cell(90, 7, f"Teklif No: {t.get('no','')}", ln=0)
+                pdf.cell(0, 7, f"Tarih: {t.get('tarih','')}", ln=1, align="R")
+                pdf.ln(2)
+                info = [("Ad Soyad:", t.get('musteri','')), ("Firma:", t.get('firma','')),
+                        ("Telefon:", t.get('telefon','')), ("Adres:", t.get('adres','')),
+                        ("Odeme:", t.get('odeme',''))]
+                for etiket, deger in info:
+                    if deger:
+                        pdf.set_font(fn, "B", 11)
+                        pdf.cell(25, 7, etiket)
+                        pdf.set_font(fn, "", 11)
+                        pdf.cell(0, 7, str(deger), ln=1)
+                pdf.ln(4)
+                cols = [("Stok Adi", 110), ("Miktar", 20), ("Toplam", 35)]
+                pdf.set_fill_color(31, 78, 121)
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_font(fn, "B", 9)
+                for txt, w in cols:
+                    pdf.cell(w, 7, txt, border=1, fill=True, align="C")
+                pdf.ln()
+                pdf.set_text_color(0, 0, 0)
+                urunler = t.get("urunler", [])
+                genel_toplam = 0
+                for i, u in enumerate(urunler):
+                    if i % 2 == 0:
+                        pdf.set_fill_color(232, 240, 254)
+                    else:
+                        pdf.set_fill_color(255, 255, 255)
+                    pdf.set_font(fn, "", 9)
+                    tp = u.get("toplam", 0)
+                    genel_toplam += tp
+                    tp_txt = f'{tp:,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
+                    pdf.cell(110, 6, u.get("stok", ""), border=1, fill=True, align="C")
+                    pdf.cell(20, 6, str(u.get("miktar", 0)), border=1, fill=True, align="C")
+                    pdf.cell(35, 6, tp_txt, border=1, fill=True, align="C")
+                    pdf.ln()
+                pdf.set_fill_color(31, 78, 121)
+                pdf.set_text_color(255, 255, 255)
+                pdf.set_font(fn, "B", 10)
+                pdf.cell(130, 8, "GENEL TOPLAM", border=1, fill=True, align="R")
+                genel_txt = f'{genel_toplam:,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
+                pdf.cell(35, 8, genel_txt + " TL", border=1, fill=True, align="C")
+                pdf.ln(10)
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_font(fn, "", 8)
+                pdf.cell(0, 5, "Fiyatlara KDV dahildir. Teklif 15 gun gecerlidir.", ln=1)
+                pdf.output(pdf_path)
+                os.startfile(pdf_path)
+                status.config(text=f"PDF olusturuldu: {pdf_adi}")
+            except Exception as e:
+                messagebox.showerror("Hata", f"PDF olusturulamadi:\n{str(e)[:100]}", parent=win)
+
+        btn_frame = tk.Frame(win)
+        btn_frame.pack(pady=8)
+        ttkb.Button(btn_frame, text=" Yenile", style="Dialog.TButton", bootstyle="primary", command=fetch).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Indir / Ac", style="DialogSuccess.TButton", bootstyle="success", command=cloud_indir).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" PDF", style="DialogInfo.TButton", bootstyle="info", command=cloud_pdf).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Duzenle", style="DialogWarning.TButton", bootstyle="warning", command=cloud_duzenle).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Secili Sil", style="DialogDanger.TButton", bootstyle="danger", command=cloud_sil).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Tumunu Sil", style="DialogDanger.TButton", bootstyle="danger", command=cloud_temizle).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Kapat", style="DialogSecondary.TButton", bootstyle="secondary", command=win.destroy).pack(side="left", padx=5)
+
+        threading.Thread(target=fetch, daemon=True).start()
 
     def _toggle_login(self):
         if self._logged_in:
@@ -2328,16 +2778,20 @@ del "%~f0" 2>nul
             self._header_login.config(text=" Giriş ", fg="#1F4E79")
             self._btn_excel.grid_remove()
             self._btn_veri.grid_remove()
+            self._btn_bulut.grid_remove()
         else:
             from tkinter import simpledialog
-            pw = simpledialog.askstring("Giriş", "Şifre:", parent=self.app)
-            if pw and pw == self._admin_pw:
-                self._logged_in = True
-                self._header_login.config(text=" Çıkış ", fg="red")
-                self._btn_excel.grid()
-                self._btn_veri.grid()
-            elif pw is not None:
-                messagebox.showwarning("Hata", "Geçersiz şifre!")
+            pw = simpledialog.askstring("Giriş", "Şifre:", parent=self.app, show="*")
+            if pw:
+                pw_hash = hashlib.sha256(pw.encode("utf-8")).hexdigest()
+                if pw_hash == config.admin_password_hash:
+                    self._logged_in = True
+                    self._header_login.config(text=" Çıkış ", fg="red")
+                    self._btn_excel.grid()
+                    self._btn_veri.grid()
+                    self._btn_bulut.grid()
+                else:
+                    messagebox.showwarning("Hata", "Geçersiz şifre!")
 
     def _import_excel(self):
         path = filedialog.askopenfilename(
@@ -2347,17 +2801,16 @@ del "%~f0" 2>nul
         )
         if not path:
             return
-        hedef = os.path.join(EXCEL_DIR, os.path.basename(path))
-        if os.path.normpath(path) != os.path.normpath(hedef):
-            shutil.copy2(path, hedef)
-        source_excel = os.path.join(os.path.dirname(EXCEL_DIR), "excel")
-        if os.path.normpath(source_excel) != os.path.normpath(EXCEL_DIR):
-            os.makedirs(source_excel, exist_ok=True)
-            src_hedef = os.path.join(source_excel, os.path.basename(path))
-            if os.path.normpath(path) != os.path.normpath(src_hedef):
-                shutil.copy2(path, src_hedef)
-        self._log(f"Excel import: {os.path.basename(path)}")
-        self._merge_workbook(hedef)
+        try:
+            hedef = os.path.join(EXCEL_DIR, os.path.basename(path))
+            if os.path.normpath(path) != os.path.normpath(hedef):
+                shutil.copy2(path, hedef)
+            self._log(f"Excel import: {os.path.basename(path)}")
+            self._merge_workbook(hedef)
+        except PermissionError:
+            messagebox.showerror("Hata", "Excel dosyası başka bir programda açık.\nDosyayı kapatıp tekrar deneyin.")
+        except Exception as e:
+            messagebox.showerror("Hata", f"Excel eklenemedi:\n{e}")
 
     def _merge_workbook(self, path):
         try:
@@ -2480,10 +2933,13 @@ del "%~f0" 2>nul
         self.cop_kutusu = [e for e in self.cop_kutusu if isinstance(e, dict) and e.get("silinme_zamani", 0) + 3600 > now]
 
     def _periodic_cleanup(self):
+        old_count = len(self.cop_kutusu)
         self._cleanup_trash()
-        self._save()
-        self._refresh_models()
-        self._refresh_table()
+        new_count = len(self.cop_kutusu)
+        if old_count != new_count:
+            self._save()
+            self._refresh_models()
+            self._refresh_table()
         self.app.after(60000, self._periodic_cleanup)
 
     def _open_trash(self):
@@ -2525,7 +2981,7 @@ del "%~f0" 2>nul
         top_bar.bind("<ButtonRelease-1>", _stop_drag)
 
         cols = ("Ürün", "Stok", "Model", "Fiyat")
-        trash_tablo = ttk.Treeview(win, columns=cols, show="headings", height=5)
+        trash_tablo = ttk.Treeview(win, columns=cols, show="headings", height=5, selectmode="extended")
         for c in cols:
             trash_tablo.heading(c, text=c)
             trash_tablo.column(c, width=140, anchor="center")
@@ -2559,7 +3015,9 @@ del "%~f0" 2>nul
         def restore():
             sel = trash_tablo.selection()
             if not sel:
+                self._suppress_destroy = True
                 messagebox.showwarning("Uyarı", "Bir ürün seçin.")
+                self._suppress_destroy = False
                 return
             idx = int(sel[0])
             if idx >= len(self.cop_kutusu):
@@ -2574,36 +3032,44 @@ del "%~f0" 2>nul
             self._refresh_table()
             self._select_by_values(record_get(item, "Kullanilan Urun"), record_get(item, "Stok Adi"), record_get(item, "Kullanilan Cihaz"))
             refresh_trash()
+            self._suppress_destroy = True
             messagebox.showinfo("Başarılı", "Ürün geri alındı.")
+            self._suppress_destroy = False
 
         def empty_trash():
             if not self.cop_kutusu:
                 return
-            if messagebox.askyesno("Onay", "Çöp kotasındaki tüm ürünler kalıcı olarak silinsin mi?", parent=win):
+            self._suppress_destroy = True
+            cevap = messagebox.askyesno("Onay", "Çöp kotasındaki tüm ürünler kalıcı olarak silinsin mi?", parent=win)
+            self._suppress_destroy = False
+            if cevap:
                 count = len(self.cop_kutusu)
                 self.cop_kutusu.clear()
                 self._log(f"Çöp kutusu temizlendi ({count} ürün)")
                 self._save()
                 refresh_trash()
+                self._suppress_destroy = True
                 messagebox.showinfo("Başarılı", "Çöp kutusu temizlendi.")
+                self._suppress_destroy = False
 
         def delete_selected():
             sel = trash_tablo.selection()
             if not sel:
                 messagebox.showwarning("Uyarı", "Silmek için bir ürün seçin.")
                 return
-            idx = int(sel[0])
-            if idx >= len(self.cop_kutusu):
-                return
-            silinen = self.cop_kutusu.pop(idx)
-            self._log(f"Çöpten silindi: {record_get(silinen, 'Stok Adi')}")
+            indices = sorted([int(s) for s in sel], reverse=True)
+            count = len(indices)
+            for idx in indices:
+                if idx < len(self.cop_kutusu):
+                    self.cop_kutusu.pop(idx)
+            self._log(f"Çöpten {count} ürün silindi")
             self._save()
             refresh_trash()
 
-        tk.Button(btn_frame, text=" Geri Al", image=self._btn_icons[9], compound="left", font=("Segoe UI Emoji", 10), command=restore).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Seçili Sil", image=self._btn_icons[7], compound="left", font=("Segoe UI Emoji", 10), command=delete_selected).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Tümünü Sil", image=self._btn_icons[10], compound="left", font=("Segoe UI Emoji", 10), command=empty_trash).pack(side="left", padx=5)
-        tk.Button(btn_frame, text=" Kapat", image=self._close_red_img, compound="left", font=("Segoe UI Emoji", 10), command=lambda: (setattr(self, '_cop_pencere', None), win.destroy())).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Geri Al", image=self._btn_icons[9], compound="left", style="DialogSuccess.TButton", bootstyle="success", command=restore).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Seçili Sil", image=self._btn_icons[7], compound="left", style="DialogDanger.TButton", bootstyle="danger", command=delete_selected).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Tümünü Sil", image=self._btn_icons[10], compound="left", style="DialogWarning.TButton", bootstyle="warning", command=empty_trash).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Kapat", image=self._close_red_img, compound="left", style="DialogSecondary.TButton", bootstyle="secondary", command=lambda: (setattr(self, '_cop_pencere', None), win.destroy())).pack(side="left", padx=5)
 
 
 if __name__ == "__main__":
