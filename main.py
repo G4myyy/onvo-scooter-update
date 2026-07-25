@@ -78,7 +78,7 @@ if getattr(sys, 'frozen', False):
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
 FIREBASE_URL = config.firebase_url
-APP_VERSION = "2.95"
+APP_VERSION = "2.96"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
