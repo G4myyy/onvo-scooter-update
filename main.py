@@ -78,7 +78,7 @@ if getattr(sys, 'frozen', False):
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
 FIREBASE_URL = config.firebase_url
-APP_VERSION = "2.98"
+APP_VERSION = "2.99"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
@@ -972,7 +972,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                         self.cop_kutusu.append(r)
                         local_cop_keys.add(k)
                 remote_sepet = r3.json() if r3.status_code == 200 else []
-                if isinstance(remote_sepet, list) and remote_sepet:
+                if isinstance(remote_sepet, list):
                     remote_keys_set = {(s.get("Kullanilan Urun",""), s.get("Stok Adi",""), s.get("Kullanilan Cihaz","")) for s in remote_sepet}
                     local_keys = {}
                     for s in self.sepet:
