@@ -78,7 +78,7 @@ if getattr(sys, 'frozen', False):
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
 FIREBASE_URL = config.firebase_url
-APP_VERSION = "2.97"
+APP_VERSION = "2.98"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
@@ -920,6 +920,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 self._push_teklifler_to_firebase(local_teklifler, auth)
                 if self._push_counter == saved_counter:
                     self._dirty = False
+                self._last_push_time = time.time()
                 self.app.after(0, lambda: (self.durum.config(text=f"Bulut senkronize | Toplam: {len(local_veriler)}"), self._log("Buluta gonderildi")))
             except Exception:
                 self.app.after(0, lambda: self._log("Bulut hatasi!"))
@@ -929,6 +930,8 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         threading.Thread(target=_push_thread, daemon=True).start()
 
     def _firebase_pull_local(self):
+        if self._syncing:
+            return False
         if time.time() - self._last_push_time < 0.5:
             return False
         try:
