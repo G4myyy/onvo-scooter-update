@@ -78,7 +78,7 @@ if getattr(sys, 'frozen', False):
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
 FIREBASE_URL = config.firebase_url
-APP_VERSION = "2.99"
+APP_VERSION = "3.00"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
@@ -889,6 +889,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             auth = f"?auth={token}" if token else ""
             r = requests.put(f"{FIREBASE_URL}/sepet.json{auth}", json=copy.deepcopy(self.sepet), timeout=10)
             r.raise_for_status()
+            self._log(f"Sepet push OK ({len(self.sepet)} urun)")
         except Exception as e:
             self._log(f"Sepet push hatasi: {e}")
 
@@ -930,8 +931,6 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         threading.Thread(target=_push_thread, daemon=True).start()
 
     def _firebase_pull_local(self):
-        if self._syncing:
-            return False
         if time.time() - self._last_push_time < 0.5:
             return False
         try:
@@ -989,6 +988,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                         else:
                             self.sepet.append(rs)
                     self.sepet = [s for s in self.sepet if (s.get("Kullanilan Urun",""), s.get("Stok Adi",""), s.get("Kullanilan Cihaz","")) in remote_keys_set]
+                    self.app.after(0, lambda: self._log(f"Sepet pull: remote={len(remote_sepet)}, local={len(self.sepet)}"))
                 r4 = requests.get(f"{FIREBASE_URL}/teklifler.json{auth}", timeout=10)
                 remote_teklifler = r4.json() if r4.status_code == 200 else []
                 if isinstance(remote_teklifler, list):
