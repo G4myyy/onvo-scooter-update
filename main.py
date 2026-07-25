@@ -1,3 +1,4 @@
+import ctypes
 import copy
 import hashlib
 import json
@@ -17,6 +18,11 @@ from openpyxl.styles import Font, Alignment, Border, Side, PatternFill
 from PIL import Image, ImageTk
 import requests
 from config import config
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(1)
+except Exception:
+    pass
 
 if getattr(sys, 'frozen', False):
     APP_DIR = os.path.dirname(sys.executable)
@@ -45,7 +51,8 @@ if getattr(sys, 'frozen', False):
 else:
     APP_DIR = os.path.dirname(os.path.abspath(__file__))
     BUNDLE_DIR = APP_DIR
-EXCEL_DIR = os.path.join(APP_DIR, "excel")
+_SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+EXCEL_DIR = os.path.join(_SCRIPT_DIR, "excel")
 DATA_FILE = os.path.join(APP_DIR, "data.json")
 TEKLIF_COUNTER = os.path.join(APP_DIR, "teklif_counter.txt")
 TEKLIF_DATA = os.path.join(APP_DIR, "teklifler.json")
@@ -71,7 +78,7 @@ if getattr(sys, 'frozen', False):
 COLUMNS = ("Kullanilan Urun", "Stok Adi", "Kullanilan Cihaz", "Satis Fiyati")
 
 FIREBASE_URL = config.firebase_url
-APP_VERSION = "2.72"
+APP_VERSION = "2.95"
 
 def _parse_version(v):
     if isinstance(v, str) and "." in v:
@@ -216,37 +223,15 @@ class StokUygulamasi:
         self._app_x = x
         self._app_y = y
         self.app.geometry(f"{w}x{h}+{x}+{y}")
-        _icon = os.path.join(APP_DIR, "logo.ico")
-        if not os.path.exists(_icon) and getattr(sys, 'frozen', False):
-            _icon = os.path.join(BUNDLE_DIR, "logo.ico")
-        if os.path.exists(_icon):
-            try:
-                self.app.iconbitmap(_icon)
-            except Exception:
-                pass
-            try:
-                _pil_img = Image.open(_icon)
-                _pil_img = _pil_img.resize((32, 32), Image.LANCZOS)
-                _tk_img = ImageTk.PhotoImage(_pil_img)
-                self.app.iconphoto(True, _tk_img)
-                self._taskbar_icon = _tk_img
-            except Exception:
-                pass
-        self.app.attributes("-topmost", True)
-        self.app.after(500, lambda: self.app.attributes("-topmost", False))
-        self.app.bind("<FocusOut>", lambda e: self.app.attributes("-topmost", False))
         self.app.minsize(1000, 650)
+        self.app.after_idle(self._set_icon)
 
         style = ttk.Style(self.app)
         style.configure("Centered.TCombobox", justify="center")
 
         # Modern button styles
+        style.configure("TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
         style.configure("Modern.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
-        style.configure("ModernSuccess.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
-        style.configure("ModernDanger.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
-        style.configure("ModernWarning.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
-        style.configure("ModernInfo.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
-        style.configure("ModernSecondary.TButton", padding=(20, 8), font=("Segoe UI", 10, "bold"), relief="flat")
         style.configure("Toolbar.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
         style.configure("ToolbarSuccess.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
         style.configure("ToolbarDanger.TButton", padding=(12, 6), font=("Segoe UI", 9, "bold"), relief="flat")
@@ -256,18 +241,6 @@ class StokUygulamasi:
         # Hover effects via map
         style.map("Modern.TButton",
             background=[("active", "#5B9BD5")],
-            foreground=[("active", "white")])
-        style.map("ModernSuccess.TButton",
-            background=[("active", "#219A52")],
-            foreground=[("active", "white")])
-        style.map("ModernDanger.TButton",
-            background=[("active", "#C0392B")],
-            foreground=[("active", "white")])
-        style.map("ModernWarning.TButton",
-            background=[("active", "#D68910")],
-            foreground=[("active", "white")])
-        style.map("ModernInfo.TButton",
-            background=[("active", "#1F6F8F")],
             foreground=[("active", "white")])
         style.map("Toolbar.TButton",
             background=[("active", "#E8F0FE")],
@@ -291,20 +264,12 @@ class StokUygulamasi:
             ]})
         ])
 
-        # Dialog button styles
-        style.configure("Dialog.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
-        style.configure("DialogSuccess.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
-        style.configure("DialogDanger.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
-        style.configure("DialogWarning.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
-        style.configure("DialogInfo.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
-        style.configure("DialogSecondary.TButton", padding=(14, 6), font=("Segoe UI", 9, "bold"), relief="flat")
-        style.configure("DialogLink.TButton", padding=(10, 4), font=("Segoe UI", 9), relief="flat")
-
         self.arama_var = tk.StringVar()
         self.model_var = tk.StringVar(value="Tümü")
         self._secili_fiyat = ""
         self._updating_fiyat = False
         self._syncing = False
+        self._push_counter = 0
         self._log_entries = []
         self._last_push_time = 0
         self._logged_in = False
@@ -555,13 +520,13 @@ class StokUygulamasi:
         ttkb.Button(btn_frame, text=" Ana Menü", image=_home_img, compound="left", style="Toolbar.TButton", bootstyle="primary", command=self._go_home).grid(row=0, column=0, padx=4)
         ttkb.Button(btn_frame, text=" Yenile", image=_refresh_img, compound="left", style="ToolbarSuccess.TButton", bootstyle="success", command=self._refresh_all).grid(row=0, column=1, padx=4)
         ttkb.Button(btn_frame, text=" Çöp Kutusu", image=_trash_img, compound="left", style="ToolbarDanger.TButton", bootstyle="danger", command=self._open_trash).grid(row=0, column=2, padx=4)
-        self._btn_excel = ttkb.Button(btn_frame, text=" Excel Seç", image=_excel_img, compound="left", style="ToolbarInfo.TButton", bootstyle="info")
+        self._btn_excel = ttkb.Button(btn_frame, text=" Excel Seç", image=_excel_img, compound="left", style="ToolbarInfo.TButton", bootstyle="info", command=self._import_excel)
         self._btn_excel.grid(row=0, column=3, padx=4)
-        self._btn_veri = ttkb.Button(btn_frame, text=" Veri Al", style="ToolbarInfo.TButton", bootstyle="info")
+        self._btn_veri = ttkb.Button(btn_frame, text=" Veri Al", style="ToolbarInfo.TButton", bootstyle="info", command=self._import_all_excel)
         self._btn_veri.grid(row=0, column=4, padx=4)
         ttkb.Button(btn_frame, text=" Sepet", image=_cart_img, compound="left", style="ToolbarWarning.TButton", bootstyle="warning", command=self._open_cart).grid(row=0, column=5, padx=4)
         ttkb.Button(btn_frame, text=" Teklifler", image=_offer_img, compound="left", style="ToolbarSuccess.TButton", bootstyle="success", command=self._open_teklifler).grid(row=0, column=6, padx=4)
-        self._btn_bulut = ttkb.Button(btn_frame, text=" Bulut Teklifleri", image=_offer_img, compound="left", style="ToolbarDanger.TButton", bootstyle="danger")
+        self._btn_bulut = ttkb.Button(btn_frame, text=" Bulut Teklifleri", image=_offer_img, compound="left", style="ToolbarDanger.TButton", bootstyle="danger", command=self._open_cloud_teklifler)
         self._btn_bulut.grid(row=0, column=7, padx=4)
         self._btn_bulut.grid_remove()
 
@@ -667,7 +632,7 @@ class StokUygulamasi:
         alt = tk.Frame(self.app)
         alt.pack(fill="x", padx=20, pady=(0, 5))
         tk.Label(alt, text=f"v{APP_VERSION}", font=("Arial", 9), fg="#999").pack(side="right")
-        ttkb.Button(alt, text="📋 İşlem Günlüğü", style="Dialog.TButton", bootstyle="primary", command=self._open_log).pack(side="right")
+        ttkb.Button(alt, text="📋 İşlem Günlüğü", bootstyle="primary", command=self._open_log).pack(side="right")
         self.durum = tk.Label(alt, text="Yükleniyor...", font=("Arial", 10))
         self.durum.pack(side="left")
 
@@ -892,6 +857,8 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         })
         self._log(f"Sepete eklendi: {stok} x1")
         self._notify("Sepete Eklendi", f"{stok} x1 - {birim_fiyat:,.2f} TL")
+        self._save()
+        self._push_sepet_sync()
         if self._sepet_refresh:
             self._sepet_refresh()
 
@@ -904,9 +871,10 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu, "sepet": self.sepet}, f, ensure_ascii=False, indent=2)
         self._last_push_time = time.time()
         self._dirty = True
+        self._push_counter += 1
         if hasattr(self, '_push_after_id') and self._push_after_id:
             self.app.after_cancel(self._push_after_id)
-        self._push_after_id = self.app.after(2000, self._firebase_push)
+        self._push_after_id = self.app.after(500, self._firebase_push)
 
     def _strip_large_fields(self, teklifler):
         cleaned = []
@@ -915,30 +883,52 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             cleaned.append(tc)
         return cleaned
 
+    def _push_sepet_sync(self):
+        try:
+            token = self._get_firebase_token()
+            auth = f"?auth={token}" if token else ""
+            requests.put(f"{FIREBASE_URL}/sepet.json{auth}", json=copy.deepcopy(self.sepet), timeout=10).raise_for_status()
+        except Exception:
+            pass
+
     def _firebase_push(self):
+        if self._syncing:
+            if not hasattr(self, '_push_retry_id') or not self._push_retry_id:
+                self._push_retry_id = self.app.after(1000, lambda: (setattr(self, '_push_retry_id', None), self._firebase_push()))
+            return
+        self._push_retry_id = None
+        self._syncing = True
         def _push_thread():
-            if self._syncing:
-                return
-            self._syncing = True
+            saved_counter = self._push_counter
             try:
                 token = self._get_firebase_token()
                 auth = f"?auth={token}" if token else ""
                 local_veriler = copy.deepcopy(self.veriler)
                 local_cop = copy.deepcopy(self.cop_kutusu)
                 local_sepet = copy.deepcopy(self.sepet)
-                requests.put(f"{FIREBASE_URL}/veriler.json{auth}", json=local_veriler, timeout=10)
-                requests.put(f"{FIREBASE_URL}/cop_kutusu.json{auth}", json=local_cop, timeout=10)
-                requests.put(f"{FIREBASE_URL}/sepet.json{auth}", json=local_sepet, timeout=10)
-                self._dirty = False
+                local_teklifler = []
+                if os.path.exists(TEKLIF_DATA):
+                    try:
+                        with open(TEKLIF_DATA, "r", encoding="utf-8") as f:
+                            local_teklifler = json.load(f)
+                    except Exception:
+                        pass
+                requests.put(f"{FIREBASE_URL}/veriler.json{auth}", json=local_veriler, timeout=10).raise_for_status()
+                requests.put(f"{FIREBASE_URL}/cop_kutusu.json{auth}", json=local_cop, timeout=10).raise_for_status()
+                requests.put(f"{FIREBASE_URL}/sepet.json{auth}", json=local_sepet, timeout=10).raise_for_status()
+                self._push_teklifler_to_firebase(local_teklifler, auth)
+                if self._push_counter == saved_counter:
+                    self._dirty = False
                 self.app.after(0, lambda: (self.durum.config(text=f"Bulut senkronize | Toplam: {len(local_veriler)}"), self._log("Buluta gonderildi")))
             except Exception:
                 self.app.after(0, lambda: self._log("Bulut hatasi!"))
+                self.app.after(2000, self._firebase_push)
             finally:
                 self._syncing = False
         threading.Thread(target=_push_thread, daemon=True).start()
 
     def _firebase_pull_local(self):
-        if self._syncing or time.time() - self._last_push_time < 10:
+        if time.time() - self._last_push_time < 0.5:
             return False
         try:
             token = self._get_firebase_token()
@@ -956,10 +946,9 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 remote_keys = {self._build_key(r) for r in remote_veriler}
                 local_keys = {self._build_key(r) for r in self.veriler}
                 local_lookup = {self._build_key(r): r for r in self.veriler}
-                if not getattr(self, '_dirty', True):
-                    self.veriler = [r for r in self.veriler if self._build_key(r) in remote_keys]
-                    local_keys = {self._build_key(r) for r in self.veriler}
-                    local_lookup = {self._build_key(r): r for r in self.veriler}
+                self.veriler = [r for r in self.veriler if self._build_key(r) in remote_keys]
+                local_keys = {self._build_key(r) for r in self.veriler}
+                local_lookup = {self._build_key(r): r for r in self.veriler}
                 for r in remote_veriler:
                     k = self._build_key(r)
                     if k in local_keys:
@@ -971,20 +960,69 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                         local_lookup[k] = r
                 remote_cop_keys = {self._build_key(r) for r in remote_cop}
                 local_cop_keys = {self._build_key(r) for r in self.cop_kutusu}
-                if not getattr(self, '_dirty', True):
-                    self.cop_kutusu = [r for r in self.cop_kutusu if self._build_key(r) in remote_cop_keys]
-                    local_cop_keys = {self._build_key(r) for r in self.cop_kutusu}
+                self.cop_kutusu = [r for r in self.cop_kutusu if self._build_key(r) in remote_cop_keys]
+                local_cop_keys = {self._build_key(r) for r in self.cop_kutusu}
                 for r in remote_cop:
                     k = self._build_key(r)
                     if k not in local_cop_keys:
                         self.cop_kutusu.append(r)
                         local_cop_keys.add(k)
                 remote_sepet = r3.json() if r3.status_code == 200 else []
-                if isinstance(remote_sepet, list) and remote_sepet:
-                    if not self.sepet:
-                        self.sepet = remote_sepet
-                    elif remote_sepet != self.sepet:
-                        self.sepet = remote_sepet
+                if isinstance(remote_sepet, list):
+                    remote_keys_set = {(s.get("Kullanilan Urun",""), s.get("Stok Adi",""), s.get("Kullanilan Cihaz","")) for s in remote_sepet}
+                    local_keys = {}
+                    for s in self.sepet:
+                        k = (s.get("Kullanilan Urun",""), s.get("Stok Adi",""), s.get("Kullanilan Cihaz",""))
+                        local_keys[k] = s
+                    for rs in remote_sepet:
+                        rk = (rs.get("Kullanilan Urun",""), rs.get("Stok Adi",""), rs.get("Kullanilan Cihaz",""))
+                        if rk in local_keys:
+                            ls = local_keys[rk]
+                            remote_miktar = int(rs.get("Miktar", 0))
+                            if remote_miktar > ls.get("Miktar", 0):
+                                ls["Miktar"] = remote_miktar
+                                ls["Toplam"] = round(ls["Miktar"] * ls.get("Birim Fiyat", 0), 2)
+                        else:
+                            self.sepet.append(rs)
+                    self.sepet = [s for s in self.sepet if (s.get("Kullanilan Urun",""), s.get("Stok Adi",""), s.get("Kullanilan Cihaz","")) in remote_keys_set]
+                r4 = requests.get(f"{FIREBASE_URL}/teklifler.json{auth}", timeout=10)
+                remote_teklifler = r4.json() if r4.status_code == 200 else []
+                if isinstance(remote_teklifler, list):
+                    local_teklifler = []
+                    if os.path.exists(TEKLIF_DATA):
+                        try:
+                            with open(TEKLIF_DATA, "r", encoding="utf-8") as f:
+                                local_teklifler = json.load(f)
+                        except Exception:
+                            pass
+                    local_by_no = {t.get("no", ""): t for t in local_teklifler}
+                    remote_by_no = {t.get("no", ""): t for t in remote_teklifler}
+                    all_nos = set(local_by_no) | set(remote_by_no)
+                    merged = []
+                    for no in all_nos:
+                        lt = local_by_no.get(no)
+                        rt = remote_by_no.get(no)
+                        if lt and rt:
+                            for fld in ("xlsx_base64", "pdf_base64"):
+                                if not lt.get(fld) and rt.get(fld):
+                                    lt[fld] = rt[fld]
+                            merged.append(rt)
+                        elif lt:
+                            merged.append(lt)
+                        else:
+                            merged.append(rt)
+                    if merged != local_teklifler:
+                        with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
+                            json.dump(merged, f, ensure_ascii=False, indent=2)
+                        if hasattr(self, '_teklif_pencere') and self._teklif_pencere and self._teklif_pencere.winfo_exists():
+                            refresh_fn = getattr(self, '_teklif_refresh', None)
+                            if refresh_fn:
+                                self.app.after_idle(refresh_fn)
+                    if merged != remote_teklifler:
+                        try:
+                            threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=merged, timeout=10), daemon=True).start()
+                        except Exception:
+                            pass
                 with open(DATA_FILE, "w", encoding="utf-8") as f:
                     json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu, "sepet": self.sepet}, f, ensure_ascii=False, indent=2)
                 return True
@@ -1044,6 +1082,25 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             return self._firebase_token
         return None
 
+    def _push_teklifler_to_firebase(self, local_teklifler, auth_param):
+        try:
+            r = requests.get(f"{FIREBASE_URL}/teklifler.json{auth_param}", timeout=10)
+            remote = r.json() if r.status_code == 200 else []
+            if isinstance(remote, list):
+                by_no = {}
+                for t in remote:
+                    by_no[t.get("no", "")] = t
+                for t in local_teklifler:
+                    no = t.get("no", "")
+                    if no not in by_no:
+                        by_no[no] = t
+                merged = list(by_no.values())
+            else:
+                merged = local_teklifler
+            requests.put(f"{FIREBASE_URL}/teklifler.json{auth_param}", json=merged, timeout=15)
+        except Exception:
+            pass
+
     def _initial_firebase_sync(self):
         def sync():
             self._firebase_login()
@@ -1053,18 +1110,22 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             else:
                 threading.Thread(target=self._firebase_push, daemon=True).start()
         threading.Thread(target=sync, daemon=True).start()
-        self.app.after(30000, self._periodic_firebase_sync)
+        self.app.after(3000, self._periodic_firebase_sync)
 
     def _periodic_firebase_sync(self):
         def sync():
             if self._firebase_pull_local():
                 self.app.after(0, self._on_firebase_sync)
+            elif self._dirty:
+                self._firebase_push()
         threading.Thread(target=sync, daemon=True).start()
-        self.app.after(30000, self._periodic_firebase_sync)
+        self.app.after(3000, self._periodic_firebase_sync)
 
     def _on_firebase_sync(self):
         self._refresh_models()
         self._refresh_table()
+        if self._sepet_refresh:
+            self._sepet_refresh()
         self._log(f"Buluttan güncellendi ({len(self.veriler)} kayıt)")
         self.durum.config(text=f"Bulut senkronize | Toplam: {len(self.veriler)}")
 
@@ -1133,6 +1194,24 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
     def _periodic_update_check(self):
         self._check_update()
         self.app.after(604800000, self._periodic_update_check)
+
+    def _set_icon(self):
+        _icon = os.path.join(APP_DIR, "logo.ico")
+        if not os.path.exists(_icon) and getattr(sys, 'frozen', False):
+            _icon = os.path.join(BUNDLE_DIR, "logo.ico")
+        if os.path.exists(_icon):
+            try:
+                self.app.iconbitmap(_icon)
+            except Exception:
+                pass
+            try:
+                _pil_img = Image.open(_icon)
+                _pil_img = _pil_img.resize((32, 32), Image.LANCZOS)
+                _tk_img = ImageTk.PhotoImage(_pil_img)
+                self.app.iconphoto(True, _tk_img)
+                self._taskbar_icon = _tk_img
+            except Exception:
+                pass
 
     @staticmethod
     def _markup(price):
@@ -1499,6 +1578,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 self._log(f"Sepete eklendi: {stok} x{miktar}")
                 self._notify("Sepete Eklendi", f"{stok} x{miktar} - {toplam:,.2f} TL")
                 self._save()
+                self._push_sepet_sync()
                 miktar_pencere.destroy()
                 self.tablo_alt.config(text=f"Toplam Kayıt: {len(self.veriler)}  |  Sepet: {len(self.sepet)} ürün")
                 if self._sepet_refresh:
@@ -1529,11 +1609,13 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             self._log(f"Toplu sepete eklendi: {eklenen} ürün")
             self._notify("Sepete Eklendi", f"{eklenen} ürün sepete eklendi")
             self._save()
+            self._push_sepet_sync()
             self.tablo_alt.config(text=f"Toplam Kayıt: {len(self.veriler)}  |  Sepet: {len(self.sepet)} ürün")
             if self._sepet_refresh:
                 self._sepet_refresh()
 
     def _open_cart(self):
+        self._opening_window = True
         if self._sepet_pencere and self._sepet_pencere.winfo_exists():
             self._sepet_pencere.destroy()
             self._sepet_pencere = None
@@ -1548,7 +1630,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         pencere.attributes("-topmost", True)
         ax = self.app.winfo_x()
         ay = self.app.winfo_y()
-        pencere.geometry(f"550x260+{ax}+{ay}")
+        pencere.geometry(f"700x320+{ax}+{ay}")
         pencere.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None), pencere.destroy()))
         self._track_window(pencere)
 
@@ -1569,7 +1651,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         self._sepet_count_label = tk.Label(top_bar, text=f"({len(self.sepet)} ürün)", font=("Arial", 10), fg="#666", bg="#E8F0FE")
         self._sepet_count_label.pack(side="left", padx=5)
         sepet_close = ttkb.Button(top_bar, text=" Kapat", image=self._btn_icons[8], compound="left",
-                                style="DialogDanger.TButton", bootstyle="danger",
+                                bootstyle="danger",
                                 command=lambda: (pencere.destroy(), setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None)))
         sepet_close.pack(side="right", padx=5, pady=3)
 
@@ -1596,17 +1678,23 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         toplam_label.pack(side="left")
 
         def refresh_cart():
+            secili_vals = None
+            secili = tablo.selection()
+            if secili:
+                secili_vals = tablo.item(secili[0], "values")
             for item in tablo.get_children():
                 tablo.delete(item)
             toplam = 0
             for s in self.sepet:
-                tablo.insert("", "end", values=(
+                iid = tablo.insert("", "end", values=(
                     s["Kullanilan Urun"],
                     s["Stok Adi"],
                     s.get("Kullanilan Cihaz", ""),
                     s["Miktar"],
                     f'{s["Toplam"]:.2f}'.replace(".", ","),
                 ))
+                if secili_vals and secili_vals[0] == s["Kullanilan Urun"] and secili_vals[1] == s["Stok Adi"] and secili_vals[2] == s.get("Kullanilan Cihaz", ""):
+                    tablo.selection_set(iid)
                 toplam += s["Toplam"]
             toplam_label.config(text=f"Toplam: {toplam:,.2f} TL".replace(",", " ").replace(".", ",").replace(" ", "."))
             if hasattr(self, '_sepet_count_label') and self._sepet_count_label:
@@ -1629,8 +1717,16 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             if 0 <= idx < len(self.sepet):
                 cikan = self.sepet.pop(idx)
                 self._log(f"Sepetten çıkarıldı: {cikan['Stok Adi']}")
-                self._save()
+                with open(DATA_FILE, "w", encoding="utf-8") as f:
+                    json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu, "sepet": self.sepet}, f, ensure_ascii=False, indent=2)
                 refresh_cart()
+                self._push_sepet_sync()
+                if hasattr(self, '_push_after_id') and self._push_after_id:
+                    self.app.after_cancel(self._push_after_id)
+                self._last_push_time = time.time()
+                self._dirty = True
+                self._push_counter += 1
+                self._firebase_push()
 
         def sepeti_temizle():
             if not self.sepet:
@@ -1638,7 +1734,16 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             if messagebox.askyesno("Onay", "Sepet temizlensin mi?", parent=pencere):
                 self._log("Sepet temizlendi")
                 self.sepet.clear()
+                with open(DATA_FILE, "w", encoding="utf-8") as f:
+                    json.dump({"veriler": self.veriler, "cop_kutusu": self.cop_kutusu, "sepet": self.sepet}, f, ensure_ascii=False, indent=2)
                 refresh_cart()
+                self._push_sepet_sync()
+                if hasattr(self, '_push_after_id') and self._push_after_id:
+                    self.app.after_cancel(self._push_after_id)
+                self._last_push_time = time.time()
+                self._dirty = True
+                self._push_counter += 1
+                self._firebase_push()
 
         btn_frame = tk.Frame(pencere)
         btn_frame.pack(fill="x", padx=5, pady=(0, 5))
@@ -1646,8 +1751,8 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         btn_inner = tk.Frame(btn_frame)
         btn_inner.pack(anchor="center")
 
-        ttkb.Button(btn_inner, text=" Çıkar", image=self._btn_icons[7], compound="left", style="DialogDanger.TButton", bootstyle="danger", command=sepetten_cikar).pack(side="left", padx=3)
-        ttkb.Button(btn_inner, text=" Temizle", image=self._btn_icons[10], compound="left", style="DialogWarning.TButton", bootstyle="warning", command=sepeti_temizle).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Çıkar", image=self._btn_icons[7], compound="left", bootstyle="danger", command=sepetten_cikar).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Temizle", image=self._btn_icons[10], compound="left", bootstyle="warning", command=sepeti_temizle).pack(side="left", padx=3)
         def open_offer_and_close_cart():
             if not self.sepet:
                 messagebox.showwarning("Uyarı", "Sepet boş.")
@@ -1656,9 +1761,10 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             self._sepet_pencere = None
             self._sepet_refresh = None
             self._create_offer()
-        ttkb.Button(btn_inner, text=" Teklif Oluştur", image=self._btn_icons[11], compound="left", style="DialogSuccess.TButton", bootstyle="success", command=open_offer_and_close_cart).pack(side="left", padx=3)
-        ttkb.Button(btn_inner, text=" Kapat", image=self._close_red_img, compound="left", style="DialogSecondary.TButton", bootstyle="secondary",
+        ttkb.Button(btn_inner, text=" Teklif Oluştur", image=self._btn_icons[11], compound="left", bootstyle="success", command=open_offer_and_close_cart).pack(side="left", padx=3)
+        ttkb.Button(btn_inner, text=" Kapat", image=self._close_red_img, compound="left", bootstyle="secondary",
                   command=lambda: (setattr(self, '_sepet_pencere', None), setattr(self, '_sepet_refresh', None), pencere.destroy())).pack(side="left", padx=3)
+        self.app.after_idle(lambda: setattr(self, '_opening_window', False))
 
     def _track_window(self, win):
         if not hasattr(self, '_tracked_windows'):
@@ -1679,17 +1785,19 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 if hasattr(self, '_cop_pencere'):
                     self._cop_pencere = None
             def _on_focus_out(event):
-                if event.widget == self.app:
-                    self.app.after(100, lambda: (
-                        _hide_tracked() if not any(
-                            w.winfo_exists() and
-                            w.winfo_x() <= self.app.winfo_pointerx() <= w.winfo_x() + w.winfo_width() and
-                            w.winfo_y() <= self.app.winfo_pointery() <= w.winfo_y() + w.winfo_height()
-                            for w in list(self._tracked_windows)
-                        ) else None
-                    ))
+                if event.widget == self.app and not getattr(self, '_opening_window', False):
+                    if not any(
+                        w.winfo_exists() and
+                        w.winfo_x() <= self.app.winfo_pointerx() <= w.winfo_x() + w.winfo_width() and
+                        w.winfo_y() <= self.app.winfo_pointery() <= w.winfo_y() + w.winfo_height()
+                        for w in list(self._tracked_windows)
+                    ):
+                        _hide_tracked()
             self.app.bind("<FocusOut>", _on_focus_out, add="+")
+            self._hide_tracked_fn = _hide_tracked
         self._tracked_windows.add(win)
+        if not getattr(self, '_fg_check_id', None):
+            self._check_foreground()
         def _track():
             if not win.winfo_exists():
                 self._tracked_windows.discard(win)
@@ -1711,6 +1819,30 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         self._last_app_x = self.app.winfo_x()
         self._last_app_y = self.app.winfo_y()
         _track()
+
+    def _check_foreground(self):
+        try:
+            import ctypes
+            if not hasattr(self, '_tracked_windows') or not self._tracked_windows:
+                self._fg_check_id = None
+                return
+            fg = ctypes.windll.user32.GetForegroundWindow()
+            our_pid = ctypes.windll.kernel32.GetCurrentProcessId()
+            fg_pid = ctypes.c_ulong()
+            ctypes.windll.user32.GetWindowThreadProcessId(fg, ctypes.byref(fg_pid))
+            if fg_pid.value != our_pid and not getattr(self, '_opening_window', False):
+                if not any(
+                    w.winfo_exists() and
+                    w.winfo_x() <= self.app.winfo_pointerx() <= w.winfo_x() + w.winfo_width() and
+                    w.winfo_y() <= self.app.winfo_pointery() <= w.winfo_y() + w.winfo_height()
+                    for w in list(self._tracked_windows)
+                ):
+                    self._hide_tracked_fn()
+                    self._fg_check_id = None
+                    return
+        except Exception:
+            pass
+        self._fg_check_id = self.app.after(300, self._check_foreground)
 
     def _destroy_tracked(self):
         if getattr(self, '_suppress_destroy', False):
@@ -2046,7 +2178,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                     json.dump(teklifler, f, ensure_ascii=False, indent=2)
                 _t = self._get_firebase_token()
                 _a = f"?auth={_t}" if _t else ""
-                threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json{_a}", json=teklifler, timeout=15), daemon=True).start()
+                threading.Thread(target=lambda: self._push_teklifler_to_firebase(teklifler, _a), daemon=True).start()
 
                 messagebox.showinfo("Basarili", f"Teklif kaydedildi:\n{kayit_yolu}")
                 win.destroy()
@@ -2065,6 +2197,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         win.geometry(f"+{(sw - ww) // 2}+{(sh - wh) // 2}")
 
     def _open_teklifler(self):
+        self._opening_window = True
         if hasattr(self, '_teklif_pencere') and self._teklif_pencere and self._teklif_pencere.winfo_exists():
             self._teklif_pencere.destroy()
             self._teklif_pencere = None
@@ -2106,14 +2239,14 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         win.attributes("-topmost", True)
         ax = self.app.winfo_x()
         ay = self.app.winfo_y()
-        win.geometry(f"700x350+{ax}+{ay}")
+        win.geometry(f"700x380+{ax}+{ay}")
         win.protocol("WM_DELETE_WINDOW", lambda: (setattr(self, '_teklif_pencere', None), win.destroy()))
         self._track_window(win)
 
         top_bar = tk.Frame(win, bg="#E8F0FE", cursor="hand2")
         top_bar.pack(side="top", fill="x")
         tk.Label(top_bar, text="  Kayıtlı Teklifler", font=("Arial", 10, "bold"), fg="#1F4E79", bg="#E8F0FE").pack(side="left", padx=5, pady=3)
-        ttkb.Button(top_bar, text=" Kapat", image=self._close_red_img, compound="left", style="DialogDanger.TButton", bootstyle="danger",
+        ttkb.Button(top_bar, text=" Kapat", image=self._close_red_img, compound="left", bootstyle="danger",
                   command=lambda: (setattr(self, '_teklif_pencere', None), win.destroy())).pack(side="right", padx=5, pady=3)
 
         _drag_data = [0, 0]
@@ -2141,7 +2274,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         tbl.column("Tutar", width=100, anchor="e")
         tbl.column("Dosya", width=250)
 
-        tbl.pack(fill="both", expand=True, padx=10, pady=5)
+        tbl.pack(fill="x", padx=10, pady=5)
 
         tbl.bind("<Double-1>", lambda e: indir())
 
@@ -2159,6 +2292,20 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 return
             vals = tbl.item(sel[0], "values")
             dosya_adi = vals[4]
+            idx = tbl.index(sel[0])
+            t = teklifler[idx]
+            xlsx_b64 = t.get("xlsx_base64", "")
+            if xlsx_b64:
+                try:
+                    import base64
+                    os.makedirs(TEKLIF_DIR, exist_ok=True)
+                    xlsx_path = os.path.join(TEKLIF_DIR, dosya_adi)
+                    with open(xlsx_path, "wb") as f:
+                        f.write(base64.b64decode(xlsx_b64))
+                    os.startfile(xlsx_path)
+                except Exception:
+                    messagebox.showinfo("Bilgi", "Excel dosyasi olusturulamadi.\nTeklif tekrar olusturulmali.", parent=win)
+                return
             masaustu = os.path.join(os.path.expanduser("~"), "Desktop", dosya_adi)
             yedek = os.path.join(TEKLIF_DIR, dosya_adi)
             if os.path.exists(masaustu):
@@ -2166,20 +2313,6 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             elif os.path.exists(yedek):
                 os.startfile(yedek)
             else:
-                idx = tbl.index(sel[0])
-                t = teklifler[idx]
-                xlsx_b64 = t.get("xlsx_base64", "")
-                if xlsx_b64:
-                    try:
-                        import base64
-                        os.makedirs(TEKLIF_DIR, exist_ok=True)
-                        xlsx_path = os.path.join(TEKLIF_DIR, dosya_adi)
-                        with open(xlsx_path, "wb") as f:
-                            f.write(base64.b64decode(xlsx_b64))
-                        os.startfile(xlsx_path)
-                    except Exception:
-                        messagebox.showinfo("Bilgi", "Excel dosyasi olusturulamadi.\nTeklif tekrar olusturulmali.", parent=win)
-                    return
                 pdf_b64 = t.get("pdf_base64", "")
                 if pdf_b64:
                     try:
@@ -2202,10 +2335,16 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             for t in teklifler:
                 tutar = f'{t.get("toplam", 0):,.2f}'.replace(",", "X").replace(".", ",").replace("X", ".")
                 tbl.insert("", "end", values=(t.get("no", ""), t.get("tarih", ""), t.get("musteri", ""), tutar, t.get("dosya", "")))
+        self._teklif_refresh = refresh_table
 
         def save_json():
             with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
                 json.dump(teklifler, f, ensure_ascii=False, indent=2)
+
+        def _push_teklifler():
+            _t = self._get_firebase_token()
+            _a = f"?auth={_t}" if _t else ""
+            threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json{_a}", json=teklifler, timeout=15), daemon=True).start()
 
         def sil():
             sel = tbl.selection()
@@ -2220,6 +2359,11 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 teklifler.pop(idx)
                 save_json()
                 refresh_table()
+                self._dirty = True
+                self._push_counter += 1
+                _t = self._get_firebase_token()
+                _a = f"?auth={_t}" if _t else ""
+                threading.Thread(target=lambda: requests.put(f"{FIREBASE_URL}/teklifler.json{_a}", json=teklifler, timeout=15), daemon=True).start()
 
         def duzenle():
             sel = tbl.selection()
@@ -2330,13 +2474,24 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                         except Exception as e:
                             messagebox.showwarning("Uyarı", f"Excel güncellenemedi:\n{xl_path}\n{str(e)[:100]}", parent=dw)
                         break
+                if updated_excel and dosya:
+                    import base64 as _b64
+                    for base in [os.path.join(os.path.expanduser("~"), "Desktop"), TEKLIF_DIR]:
+                        xl_path = os.path.join(base, dosya)
+                        if os.path.exists(xl_path):
+                            with open(xl_path, "rb") as _f:
+                                teklifler[idx]["xlsx_base64"] = _b64.b64encode(_f.read()).decode("utf-8")
+                            break
+                    save_json()
+                
                 if not updated_excel and dosya:
                     messagebox.showinfo("Bilgi", f"Excel dosyası bulunamadı:\n{dosya}\n\nDeğişiklikler sadece listede kaydedildi.", parent=dw)
                 
                 refresh_table()
+                _push_teklifler()
                 dw.destroy()
 
-            ttkb.Button(dw, text="Kaydet", style="ModernSuccess.TButton", bootstyle="success", command=kaydet).grid(row=7, column=0, columnspan=2, pady=15)
+            tk.Button(dw, text="Kaydet", font=("Arial", 10, "bold"), bg="#28A745", fg="white", padx=10, pady=4, command=kaydet, width=12).grid(row=7, column=0, columnspan=2, pady=15)
 
         def pdf_yap():
             sel = tbl.selection()
@@ -2467,28 +2622,28 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             except Exception as e:
                 messagebox.showwarning("Hata", f"PDF olusturulamadi:\n{str(e)[:100]}", parent=win)
 
-        ttkb.Button(btn_frame, text=" İndir / Aç", style="Dialog.TButton", bootstyle="primary", command=indir).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" PDF", style="DialogSuccess.TButton", bootstyle="success", command=pdf_yap).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Düzenle", style="DialogWarning.TButton", bootstyle="warning", command=duzenle).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Sil", style="DialogDanger.TButton", bootstyle="danger", command=sil).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Kapat", style="DialogSecondary.TButton", bootstyle="secondary", command=win.destroy).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" İndir / Aç", font=("Arial", 9, "bold"), bg="#5B9BD5", fg="white", padx=8, pady=3, command=indir, width=14).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" PDF", font=("Arial", 9, "bold"), bg="#28A745", fg="white", padx=8, pady=3, command=pdf_yap, width=8).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Düzenle", font=("Arial", 9, "bold"), bg="#FFC107", fg="black", padx=8, pady=3, command=duzenle, width=12).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Sil", font=("Arial", 9, "bold"), bg="#DC3545", fg="white", padx=8, pady=3, command=sil, width=8).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Kapat", font=("Arial", 9, "bold"), bg="#6C757D", fg="white", padx=8, pady=3, command=win.destroy, width=10).pack(side="left", padx=5)
+        self.app.after_idle(lambda: setattr(self, '_opening_window', False))
 
     def _open_cloud_teklifler(self):
         win = tk.Toplevel(self.app)
         win.title("Bulut Teklifleri (Admin)")
-        win.geometry("750x400")
-        win.attributes("-topmost", True)
+        win.geometry("750x450")
 
         top = tk.Frame(win, bg="#E74C3C")
         top.pack(fill="x")
         tk.Label(top, text="  BULUT TEKLIPLERI - ADMIN", font=("Arial", 11, "bold"), fg="white", bg="#E74C3C", padx=10, pady=5).pack(side="left")
-        ttkb.Button(top, text="Kapat", style="DialogDanger.TButton", bootstyle="danger", command=win.destroy).pack(side="right", padx=5, pady=3)
+        tk.Button(top, text="Kapat", font=("Arial", 9, "bold"), bg="#DC3545", fg="white", padx=6, pady=2, command=win.destroy).pack(side="right", padx=5, pady=3)
 
         status = tk.Label(win, text="Yukleniyor...", font=("Arial", 9), fg="#666")
         status.pack(fill="x", padx=10, pady=(5, 0))
 
         cols = ("Teklif No", "Tarih", "Musteri", "Firma", "Tutar")
-        tbl = ttk.Treeview(win, columns=cols, show="headings", height=12, selectmode="extended")
+        tbl = ttk.Treeview(win, columns=cols, show="headings", height=11, selectmode="extended")
         for c in cols:
             tbl.heading(c, text=c)
         tbl.column("Teklif No", width=140)
@@ -2496,7 +2651,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         tbl.column("Musteri", width=140)
         tbl.column("Firma", width=140)
         tbl.column("Tutar", width=100, anchor="e")
-        tbl.pack(fill="both", expand=True, padx=10, pady=5)
+        tbl.pack(fill="x", padx=10, pady=5)
 
         scrollbar = ttk.Scrollbar(win, orient="vertical", command=tbl.yview)
         tbl.configure(yscrollcommand=scrollbar.set)
@@ -2543,6 +2698,10 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 token = self._get_firebase_token()
                 auth = f"?auth={token}" if token else ""
                 requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=cloud_teklifler, timeout=15)
+                with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
+                    json.dump(cloud_teklifler, f, ensure_ascii=False, indent=2)
+                self._dirty = True
+                self._push_counter += 1
                 self._log(f"Buluttan {count} teklif silindi")
             except Exception as e:
                 messagebox.showerror("Hata", f"Bulut guncellenemedi: {e}", parent=win)
@@ -2560,6 +2719,10 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 token = self._get_firebase_token()
                 auth = f"?auth={token}" if token else ""
                 requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=[], timeout=15)
+                with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
+                    json.dump([], f, ensure_ascii=False, indent=2)
+                self._dirty = True
+                self._push_counter += 1
                 self._log(f"Buluttan tum teklifler silindi ({count})")
             except Exception as e:
                 messagebox.showerror("Hata", f"Bulut guncellenemedi: {e}", parent=win)
@@ -2570,6 +2733,10 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 token = self._get_firebase_token()
                 auth = f"?auth={token}" if token else ""
                 requests.put(f"{FIREBASE_URL}/teklifler.json{auth}", json=cloud_teklifler, timeout=15)
+                with open(TEKLIF_DATA, "w", encoding="utf-8") as f:
+                    json.dump(cloud_teklifler, f, ensure_ascii=False, indent=2)
+                self._dirty = True
+                self._push_counter += 1
                 return True
             except Exception as e:
                 messagebox.showerror("Hata", f"Bulut guncellenemedi: {e}", parent=win)
@@ -2662,7 +2829,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                     fetch()
                     dw.destroy()
 
-            ttkb.Button(dw, text="Kaydet", style="ModernSuccess.TButton", bootstyle="success", command=kaydet).grid(row=len(fields), column=0, columnspan=2, pady=15)
+            tk.Button(dw, text="Kaydet", font=("Arial", 10, "bold"), bg="#28A745", fg="white", padx=10, pady=4, command=kaydet, width=12).grid(row=len(fields), column=0, columnspan=2, pady=15)
 
         def cloud_pdf():
             sel = tbl.selection()
@@ -2762,13 +2929,13 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
 
         btn_frame = tk.Frame(win)
         btn_frame.pack(pady=8)
-        ttkb.Button(btn_frame, text=" Yenile", style="Dialog.TButton", bootstyle="primary", command=fetch).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Indir / Ac", style="DialogSuccess.TButton", bootstyle="success", command=cloud_indir).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" PDF", style="DialogInfo.TButton", bootstyle="info", command=cloud_pdf).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Duzenle", style="DialogWarning.TButton", bootstyle="warning", command=cloud_duzenle).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Secili Sil", style="DialogDanger.TButton", bootstyle="danger", command=cloud_sil).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Tumunu Sil", style="DialogDanger.TButton", bootstyle="danger", command=cloud_temizle).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Kapat", style="DialogSecondary.TButton", bootstyle="secondary", command=win.destroy).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Yenile", font=("Arial", 9, "bold"), bg="#5B9BD5", fg="white", padx=8, pady=3, command=fetch, width=10).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Indir / Ac", font=("Arial", 9, "bold"), bg="#28A745", fg="white", padx=8, pady=3, command=cloud_indir, width=14).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" PDF", font=("Arial", 9, "bold"), bg="#17A2B8", fg="white", padx=8, pady=3, command=cloud_pdf, width=8).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Duzenle", font=("Arial", 9, "bold"), bg="#FFC107", fg="black", padx=8, pady=3, command=cloud_duzenle, width=12).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Secili Sil", font=("Arial", 9, "bold"), bg="#DC3545", fg="white", padx=8, pady=3, command=cloud_sil, width=14).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Tumunu Sil", font=("Arial", 9, "bold"), bg="#DC3545", fg="white", padx=8, pady=3, command=cloud_temizle, width=14).pack(side="left", padx=5)
+        tk.Button(btn_frame, text=" Kapat", font=("Arial", 9, "bold"), bg="#6C757D", fg="white", padx=8, pady=3, command=win.destroy, width=10).pack(side="left", padx=5)
 
         threading.Thread(target=fetch, daemon=True).start()
 
@@ -2812,18 +2979,56 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         except Exception as e:
             messagebox.showerror("Hata", f"Excel eklenemedi:\n{e}")
 
-    def _merge_workbook(self, path):
+    def _import_all_excel(self):
+        try:
+            self._import_all_excel_impl()
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            self._log(f"Veri Al hatası: {e}\n{tb}")
+            messagebox.showerror("Hata", f"Veri Al başarısız:\n{e}")
+
+    def _import_all_excel_impl(self):
+        if not os.path.isdir(EXCEL_DIR):
+            messagebox.showinfo("Bilgi", "Excel klasörü bulunamadı.")
+            return
+        toplam_yeni = 0
+        toplam_guncel = 0
+        toplam_kayit = 0
+        dosya_sayi = 0
+        for dosya in sorted(os.listdir(EXCEL_DIR)):
+            if not dosya.lower().endswith(".xlsx") or dosya.startswith("~$"):
+                continue
+            sonuc = self._merge_workbook(os.path.join(EXCEL_DIR, dosya), show_message=False, save_refresh=False)
+            if sonuc:
+                y, g, t = sonuc
+                toplam_yeni += y
+                toplam_guncel += g
+                toplam_kayit += t
+                dosya_sayi += 1
+            self.app.update()
+        if dosya_sayi:
+            self._save()
+            self._refresh_models()
+            self._refresh_table()
+            self._log(f"Veri Al: {dosya_sayi} dosya, {toplam_kayit} kayıt ({toplam_yeni} yeni, {toplam_guncel} güncel)")
+            messagebox.showinfo("Başarılı", f"{dosya_sayi} dosya işlendi.\n{toplam_kayit} kayıt ({toplam_yeni} yeni, {toplam_guncel} güncel).")
+        else:
+            messagebox.showinfo("Bilgi", "İşlenecek Excel dosyası bulunamadı.")
+
+    def _merge_workbook(self, path, show_message=True, save_refresh=True):
         try:
             wb = load_workbook(path, data_only=True)
         except Exception as e:
             messagebox.showerror("Hata", f"Excel okunamadı:\n{e}")
-            return
+            return None
 
         ws = wb.active
         rows = list(ws.iter_rows(values_only=True))
         if not rows:
-            messagebox.showwarning("Uyarı", "Dosyada veri yok.")
-            return
+            if show_message:
+                messagebox.showwarning("Uyarı", "Dosyada veri yok.")
+            return None
 
         headers = ["" if c is None else str(c).strip() for c in rows[0]]
         imported = []
@@ -2835,29 +3040,35 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
                 imported.append(rec)
 
         if not imported:
-            messagebox.showwarning("Uyarı", "Eklenebilir kayıt yok.")
+            if show_message:
+                messagebox.showwarning("Uyarı", "Eklenebilir kayıt yok.")
             return
 
         existing_lookup = {self._build_key(r): r for r in self.veriler}
-        trash_keys = {self._build_key(r) for r in self.cop_kutusu}
+        _onceki = len(self.veriler)
+        _yeni = 0
+        _guncel = 0
         for rec in imported:
             k = self._build_key(rec)
-            if k in trash_keys:
-                continue
             if k in existing_lookup:
+                _guncel += 1
                 old = existing_lookup[k]
                 fp = rec.get("Satis Fiyati", "")
                 if fp:
                     record_set(old, "Satis Fiyati", self._markup(fp))
             else:
+                _yeni += 1
                 rec["Satis Fiyati"] = self._markup(rec.get("Satis Fiyati", ""))
                 self.veriler.append(rec)
 
-        self._save()
-        self._refresh_models()
-        self._refresh_table()
-        self._log(f"Excel içe aktarıldı: {len(imported)} kayıt - {os.path.basename(path)}")
-        messagebox.showinfo("Başarılı", f"{len(imported)} kayıt aktarıldı.")
+        if save_refresh:
+            self._save()
+            self._refresh_models()
+            self._refresh_table()
+        self._log(f"Excel: {_yeni} yeni + {_guncel} guncel = {len(imported)} - veriler: {_onceki} -> {len(self.veriler)}")
+        if show_message:
+            messagebox.showinfo("Başarılı", f"{len(imported)} kayıt işlendi ({_yeni} yeni, {_guncel} güncel).")
+        return _yeni, _guncel, len(imported)
 
     def _reload_excel(self):
         if not messagebox.askyesno("Onay", "Excel klasöründeki tüm dosyalar işlenecek.\nTüm fiyatlar Excel'den güncellenecek.\nDevam edilsin mi?"):
@@ -2943,6 +3154,7 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         self.app.after(60000, self._periodic_cleanup)
 
     def _open_trash(self):
+        self._opening_window = True
         if hasattr(self, '_cop_pencere') and self._cop_pencere and self._cop_pencere.winfo_exists():
             self._cop_pencere.destroy()
             self._cop_pencere = None
@@ -2958,7 +3170,6 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
         ay = self.app.winfo_y()
         win.geometry(f"650x300+{ax}+{ay}")
         win.lift()
-        win.focus_force()
         self._track_window(win)
 
         top_bar = tk.Frame(win, bg="#E8F0FE", cursor="hand2")
@@ -3066,10 +3277,11 @@ $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
             self._save()
             refresh_trash()
 
-        ttkb.Button(btn_frame, text=" Geri Al", image=self._btn_icons[9], compound="left", style="DialogSuccess.TButton", bootstyle="success", command=restore).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Seçili Sil", image=self._btn_icons[7], compound="left", style="DialogDanger.TButton", bootstyle="danger", command=delete_selected).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Tümünü Sil", image=self._btn_icons[10], compound="left", style="DialogWarning.TButton", bootstyle="warning", command=empty_trash).pack(side="left", padx=5)
-        ttkb.Button(btn_frame, text=" Kapat", image=self._close_red_img, compound="left", style="DialogSecondary.TButton", bootstyle="secondary", command=lambda: (setattr(self, '_cop_pencere', None), win.destroy())).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Geri Al", image=self._btn_icons[9], compound="left", bootstyle="success", command=restore).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Seçili Sil", image=self._btn_icons[7], compound="left", bootstyle="danger", command=delete_selected).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Tümünü Sil", image=self._btn_icons[10], compound="left", bootstyle="warning", command=empty_trash).pack(side="left", padx=5)
+        ttkb.Button(btn_frame, text=" Kapat", image=self._close_red_img, compound="left", bootstyle="secondary", command=lambda: (setattr(self, '_cop_pencere', None), win.destroy())).pack(side="left", padx=5)
+        self.app.after_idle(lambda: setattr(self, '_opening_window', False))
 
 
 if __name__ == "__main__":
